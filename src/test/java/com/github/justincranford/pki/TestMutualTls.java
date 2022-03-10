@@ -104,18 +104,15 @@ class TestMutualTls {
 	private EndEntity server;
 	private HttpsServer httpsServer;
 
-	@BeforeAll
-	static void beforeAll() throws Exception {
+	@BeforeAll static void beforeAll() throws Exception {
 		LOGGER.info("Before all test methods");
 	}
 
-	@BeforeEach
-	void beforeEach() {
+	@BeforeEach void beforeEach() {
 		LOGGER.info("Before each test method");
 	}
 
-	@AfterEach
-	void afterEach() throws Exception {
+	@AfterEach void afterEach() throws Exception {
 		LOGGER.info("After each test method");
 		if (httpsServer != null) {
 			httpsServer.stop(0);
@@ -123,23 +120,42 @@ class TestMutualTls {
 		if ((client != null) && (client.provider instanceof AuthProvider authProvider)) {
 			LOGGER.info("Logout client");
 			authProvider.logout();
+			Security.removeProvider(authProvider.getName());
 		}
 		if ((server != null) && (server.provider instanceof AuthProvider authProvider)) {
 			LOGGER.info("Logout server");
 			authProvider.logout();
+			Security.removeProvider(authProvider.getName());
 		}
 	}
 
-	@AfterAll
-	static void afterAll() {
+	@AfterAll static void afterAll() {
 		LOGGER.info("After all test methods");
 	}
 
-	@Test
-	void testMutualTls() throws Exception {
-		// private key and cert chain
-		client = createClient();
-		server = createServer();
+	@Test void testMutualTlsPkcs12ClientPkcs12Server() throws Exception {
+		this.mutualTlsHelper(true, true); // usePkcs12Client=true, usePkcs12Server=true
+	}
+
+	@Test void testMutualTlsPkcs11ClientPkcs12Server() throws Exception {
+		this.mutualTlsHelper(false, true); // usePkcs12Client=false, usePkcs12Server=true
+	}
+
+	@Test void testMutualTlsPkcs12ClientPkcs11Server() throws Exception {
+		this.mutualTlsHelper(true, false); // usePkcs12Client=true, usePkcs12Server=false
+	}
+
+	@Test void testMutualTlsPkcs11ClientPkcs11Server() throws Exception {
+		this.mutualTlsHelper(false, false); // usePkcs12Client=false, usePkcs12Server=false
+	}
+
+	private void mutualTlsHelper(boolean usePkcs12Client, boolean usePkcs12Server)
+			throws Exception, IOException, URISyntaxException, InterruptedException {
+		if (System.getenv("SOFTHSM2_CONF") == null) {
+			throw new IllegalArgumentException("Missing environment variable SOFTHSM2_CONF");
+		}
+		client = createClient(usePkcs12Client);
+		server = createServer(usePkcs12Server);
 
 		final String expectedResponse = "Hello World " + SECURE_RANDOM.nextInt() + "\n";
 
@@ -222,13 +238,13 @@ class TestMutualTls {
 		return serverSslContext;
 	}
 
-	private static EndEntity createClient() throws Exception {
+	private static EndEntity createClient(final boolean usePkcs12) throws Exception {
 		final char[] keyStorePassword = "clientuser".toCharArray();
 		final Provider keyStoreProvider;
 		final KeyStore keyStore;
 		final Provider keyPairGeneratorProvider;
 		final Provider signatureProvider;
-		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
+		if (usePkcs12) {
 			keyStoreProvider = Security.getProvider("SunJSSE");
 			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
 			keyStore.load(null, null);
@@ -297,7 +313,7 @@ class TestMutualTls {
 		printCertChain("Client cert chain", (X509Certificate[]) clientEndEntity.getCertificateChain());
 
 		final String alias = "clientEndEntityAlias";
-		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
+		if (usePkcs12) {
 			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("clientEndEntityPassword".toCharArray());
 			keyStore.setEntry(alias, clientEndEntity, entryPassword);
 			final byte[] keyStoreBytes;
@@ -311,13 +327,13 @@ class TestMutualTls {
 		return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
 	}
 
-	private static EndEntity createServer() throws Exception {
+	private static EndEntity createServer(final boolean usePkcs12) throws Exception {
 		final char[] keyStorePassword = "serveruser".toCharArray();
 		final Provider keyStoreProvider;
 		final KeyStore keyStore;
 		final Provider keyPairGeneratorProvider;
 		final Provider signatureProvider;
-		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
+		if (usePkcs12) {
 			keyStoreProvider = Security.getProvider("SunJSSE");
 			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
 			keyStore.load(null, null);
@@ -386,7 +402,7 @@ class TestMutualTls {
 		printCertChain("Client cert chain", (X509Certificate[]) serverEndEntity.getCertificateChain());
 
 		final String alias = "serverEndEntityAlias";
-		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
+		if (usePkcs12) {
 			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("serverEndEntityPassword".toCharArray());
 			keyStore.setEntry(alias, serverEndEntity, entryPassword);
 			final byte[] keyStoreBytes;
