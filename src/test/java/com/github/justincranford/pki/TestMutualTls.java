@@ -58,10 +58,7 @@ import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -104,16 +101,7 @@ class TestMutualTls {
 	private EndEntity server;
 	private HttpsServer httpsServer;
 
-	@BeforeAll static void beforeAll() throws Exception {
-		LOGGER.info("Before all test methods");
-	}
-
-	@BeforeEach void beforeEach() {
-		LOGGER.info("Before each test method");
-	}
-
 	@AfterEach void afterEach() throws Exception {
-		LOGGER.info("After each test method");
 		if (httpsServer != null) {
 			httpsServer.stop(0);
 		}
@@ -127,10 +115,6 @@ class TestMutualTls {
 			authProvider.logout();
 			Security.removeProvider(authProvider.getName());
 		}
-	}
-
-	@AfterAll static void afterAll() {
-		LOGGER.info("After all test methods");
 	}
 
 	@Test void testMutualTlsPkcs12ClientPkcs12Server() throws Exception {
@@ -149,8 +133,7 @@ class TestMutualTls {
 		this.mutualTlsHelper(false, false); // usePkcs12Client=false, usePkcs12Server=false
 	}
 
-	private void mutualTlsHelper(boolean usePkcs12Client, boolean usePkcs12Server)
-			throws Exception, IOException, URISyntaxException, InterruptedException {
+	private void mutualTlsHelper(boolean usePkcs12Client, boolean usePkcs12Server) throws Exception {
 		if (System.getenv("SOFTHSM2_CONF") == null) {
 			throw new IllegalArgumentException("Missing environment variable SOFTHSM2_CONF");
 		}
@@ -164,12 +147,12 @@ class TestMutualTls {
 		this.httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 443), 0);
 		this.httpsServer.setHttpsConfigurator(new HttpsConfigurator(serverSslContext) {
 			@Override public void configure(final HttpsParameters httpsParameters) {
-                final SSLEngine engine = serverSslContext.createSSLEngine();
-                httpsParameters.setNeedClientAuth(true);
-                httpsParameters.setCipherSuites(engine.getEnabledCipherSuites());
-                httpsParameters.setProtocols(engine.getEnabledProtocols());
-                httpsParameters.setSSLParameters(serverSslContext.getSupportedSSLParameters());
-            }
+				final SSLEngine engine = serverSslContext.createSSLEngine();
+				httpsParameters.setNeedClientAuth(true);
+				httpsParameters.setCipherSuites(engine.getEnabledCipherSuites());
+				httpsParameters.setProtocols(engine.getEnabledProtocols());
+				httpsParameters.setSSLParameters(serverSslContext.getSupportedSSLParameters());
+			}
 		});
 		this.httpsServer.createContext("/test", new HttpHandler() {
 			@Override public void handle(final HttpExchange httpExchange) throws IOException {
@@ -178,7 +161,7 @@ class TestMutualTls {
 					os.write(expectedResponse.getBytes(StandardCharsets.UTF_8));
 				}
 			}
-    	});
+		});
 		this.httpsServer.setExecutor(null); // creates a default executor
 		this.httpsServer.start();
 
