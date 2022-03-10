@@ -223,10 +223,10 @@ class TestMutualTls {
 
 	private static EndEntity createClient(final boolean usePkcs12) throws Exception {
 		final char[] keyStorePassword = "clientuser".toCharArray();
-		final Provider keyStoreProvider;
 		final KeyStore keyStore;
-		final Provider keyPairGeneratorProvider;
-		final Provider signatureProvider;
+		final Provider keyStoreProvider; // PKCS12 SunJSSE, PKCS11 SunPKCS11
+		final Provider keyPairGeneratorProvider; // PKCS12 SunEC, PKCS11 SunPKCS11
+		final Provider signatureProvider; // PKCS12 SunEC, PKCS11 SunPKCS11
 		if (usePkcs12) {
 			keyStoreProvider = Security.getProvider("SunJSSE");
 			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
@@ -251,7 +251,7 @@ class TestMutualTls {
 		}
 
 		final KeyPairGenerator clientKeyPairGenerator = KeyPairGenerator.getInstance("EC", keyPairGeneratorProvider);
-		clientKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST P-521 
+		clientKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST P-521
 
 		final KeyPair clientCaKeyPair = clientKeyPairGenerator.generateKeyPair();
 		final KeyStore.PrivateKeyEntry clientCa = new KeyStore.PrivateKeyEntry(
@@ -312,15 +312,15 @@ class TestMutualTls {
 
 	private static EndEntity createServer(final boolean usePkcs12) throws Exception {
 		final char[] keyStorePassword = "serveruser".toCharArray();
-		final Provider keyStoreProvider;
 		final KeyStore keyStore;
-		final Provider keyPairGeneratorProvider;
-		final Provider signatureProvider;
+		final Provider keyStoreProvider; // PKCS12 SunJSSE, PKCS11 SunPKCS11
+		final Provider keyPairGeneratorProvider; // PKCS12 SunRsaSign, PKCS11 SunPKCS11
+		final Provider signatureProvider; // PKCS12 SunRsaSign, PKCS11 SunPKCS11
 		if (usePkcs12) {
 			keyStoreProvider = Security.getProvider("SunJSSE");
 			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
 			keyStore.load(null, null);
-			keyPairGeneratorProvider = signatureProvider = Security.getProvider("SunEC");
+			keyPairGeneratorProvider = signatureProvider = Security.getProvider("SunRsaSign");
 		} else {
 			final ProviderCallbackHandler providerCallbackHandler = new ProviderCallbackHandler(keyStorePassword);
 			final AuthProvider authProvider = (AuthProvider) Security.getProvider("SunPKCS11").configure(SUNPKCS11_SERVER_CONF);
@@ -339,8 +339,8 @@ class TestMutualTls {
 			LOGGER.info(sb.toString());
 		}
 
-		final KeyPairGenerator serverKeyPairGenerator = KeyPairGenerator.getInstance("EC", keyPairGeneratorProvider);
-		serverKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST P-521 
+		final KeyPairGenerator serverKeyPairGenerator = KeyPairGenerator.getInstance("RSA", keyPairGeneratorProvider);
+		serverKeyPairGenerator.initialize(2048);
 
 		final KeyPair serverCaKeyPair = serverKeyPairGenerator.generateKeyPair();
 		final KeyStore.PrivateKeyEntry serverCa = new KeyStore.PrivateKeyEntry(
@@ -354,7 +354,7 @@ class TestMutualTls {
 					new X500Name("DC=Client Root CA"),
 					serverCaKeyPair.getPrivate(),
 					new X500Name("DC=Client Root CA"),
-					"SHA512withECDSA",
+					"SHA512WITHRSA",
 					signatureProvider,
 					new Extension(Extension.basicConstraints, true, new BasicConstraints(0).toASN1Primitive().getEncoded()),
 					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
@@ -373,7 +373,7 @@ class TestMutualTls {
 					new X500Name("CN=Client End Entity, DC=Client Root CA"),
 					serverCaKeyPair.getPrivate(),
 					new X500Name("DC=Client Root CA"),
-					"SHA512withECDSA",
+					"SHA512WITHRSA",
 					signatureProvider,
 					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
 					new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
