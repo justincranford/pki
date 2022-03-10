@@ -91,8 +91,8 @@ class TestMutualTls {
 	}
 
 	record EndEntity(
-		Provider provider, // SunJSSE, SunPKCS11
 		char[] password, // PKCS12 file integrity, PKCS11 HSM slot authentication
+		Provider provider, // SunJSSE, SunPKCS11
 		KeyStore keyStore, // PKCS12, PKCS11
 		byte[] keyStoreBytes, // PKCS12 keystore file contents, PKCS11 null
 		String alias, // PrivateKeyEntry alias
@@ -305,10 +305,10 @@ class TestMutualTls {
 				keyStore.store(baos, keyStorePassword);
 				keyStoreBytes = baos.toByteArray();
 			}
-			return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
+			return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
 		}
 		keyStore.setEntry(alias, clientEndEntity, null);
-		return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
+		return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
 	}
 
 	private static EndEntity createServer() throws Exception {
@@ -394,10 +394,10 @@ class TestMutualTls {
 				keyStore.store(baos, keyStorePassword);
 				keyStoreBytes = baos.toByteArray();
 			}
-			return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
+			return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
 		}
 		keyStore.setEntry(alias, serverEndEntity, null);
-		return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
+		return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
 	}
 
 	private static X509Certificate createCert(
