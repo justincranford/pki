@@ -15,6 +15,6 @@ softhsm2-util.exe --init-token --label "Client" --free<p>
 softhsm2-util.exe --init-token --label "Server" --free<p>
 softhsm2-util.exe --show-slots
 
-# TestMutualTls.java us hard-coded to login to HSM slots with these passwords
+# TestMutualTls.java uses hard-coded to login to HSM slots with these passwords
 slotListIndex 0 (USER PIN): "clientuser"<p>
 slotListIndex 1 (USER PIN): "serveruser"
