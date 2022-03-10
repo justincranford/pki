@@ -94,8 +94,8 @@ class TestMutualTls {
 		Provider provider, // SunJSSE, SunPKCS11
 		char[] password, // PKCS12 file integrity, PKCS11 HSM slot authentication
 		KeyStore keyStore, // PKCS12, PKCS11
-		byte[] keyStoreBytes, // PKCS12 keystore file contents, PKCS11 config file contents
-		String alias,
+		byte[] keyStoreBytes, // PKCS12 keystore file contents, PKCS11 null
+		String alias, // PrivateKeyEntry alias
 		char[] entryPassword, // PKCS12 non-null, PKCS11 null
 		KeyStore.PrivateKeyEntry entry // PKCS12 in-memory private key, PKCS11 in-HSM private key identifier
 	) {}
@@ -297,18 +297,18 @@ class TestMutualTls {
 		printCertChain("Client cert chain", (X509Certificate[]) clientEndEntity.getCertificateChain());
 
 		final String alias = "clientEndEntityAlias";
-		final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("clientEndEntityPassword".toCharArray());
-		keyStore.setEntry(alias, clientEndEntity, entryPassword);
-		final byte[] keyStoreBytes;
 		if (System.getenv("SOFTHSM2_CONF") == null) {
+			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("clientEndEntityPassword".toCharArray());
+			keyStore.setEntry(alias, clientEndEntity, entryPassword);
+			final byte[] keyStoreBytes;
 			try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
 				keyStore.store(baos, keyStorePassword);
 				keyStoreBytes = baos.toByteArray();
 			}
-		} else {
-			keyStoreBytes = null;
+			return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
 		}
-		return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry)keyStore.getEntry(alias, entryPassword));
+		keyStore.setEntry(alias, clientEndEntity, null);
+		return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
 	}
 
 	private static EndEntity createServer() throws Exception {
@@ -386,18 +386,18 @@ class TestMutualTls {
 		printCertChain("Client cert chain", (X509Certificate[]) serverEndEntity.getCertificateChain());
 
 		final String alias = "serverEndEntityAlias";
-		final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("serverEndEntityPassword".toCharArray());
-		keyStore.setEntry(alias, serverEndEntity, entryPassword);
-		final byte[] keyStoreBytes;
 		if (System.getenv("SOFTHSM2_CONF") == null) {
+			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("serverEndEntityPassword".toCharArray());
+			keyStore.setEntry(alias, serverEndEntity, entryPassword);
+			final byte[] keyStoreBytes;
 			try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
 				keyStore.store(baos, keyStorePassword);
 				keyStoreBytes = baos.toByteArray();
 			}
-		} else {
-			keyStoreBytes = null;
+			return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
 		}
-		return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, keyStoreBytes, alias, entryPassword.getPassword(), (KeyStore.PrivateKeyEntry)keyStore.getEntry(alias, entryPassword));
+		keyStore.setEntry(alias, serverEndEntity, null);
+		return new EndEntity(keyStoreProvider, keyStorePassword, keyStore, null, alias, null, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
 	}
 
 	private static X509Certificate createCert(
