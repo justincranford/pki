@@ -116,6 +116,7 @@ class TestMutualTls {
 
 	@AfterEach
 	void afterEach() throws Exception {
+		LOGGER.info("After each test method");
 		if (httpsServer != null) {
 			httpsServer.stop(0);
 		}
@@ -127,7 +128,6 @@ class TestMutualTls {
 			LOGGER.info("Logout server");
 			authProvider.logout();
 		}
-		LOGGER.info("After each test method");
 	}
 
 	@AfterAll
@@ -228,7 +228,7 @@ class TestMutualTls {
 		final KeyStore keyStore;
 		final Provider keyPairGeneratorProvider;
 		final Provider signatureProvider;
-		if (System.getenv("SOFTHSM2_CONF") == null) {
+		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
 			keyStoreProvider = Security.getProvider("SunJSSE");
 			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
 			keyStore.load(null, null);
@@ -297,7 +297,7 @@ class TestMutualTls {
 		printCertChain("Client cert chain", (X509Certificate[]) clientEndEntity.getCertificateChain());
 
 		final String alias = "clientEndEntityAlias";
-		if (System.getenv("SOFTHSM2_CONF") == null) {
+		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
 			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("clientEndEntityPassword".toCharArray());
 			keyStore.setEntry(alias, clientEndEntity, entryPassword);
 			final byte[] keyStoreBytes;
@@ -317,7 +317,7 @@ class TestMutualTls {
 		final KeyStore keyStore;
 		final Provider keyPairGeneratorProvider;
 		final Provider signatureProvider;
-		if (System.getenv("SOFTHSM2_CONF") == null) {
+		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
 			keyStoreProvider = Security.getProvider("SunJSSE");
 			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
 			keyStore.load(null, null);
@@ -386,7 +386,7 @@ class TestMutualTls {
 		printCertChain("Client cert chain", (X509Certificate[]) serverEndEntity.getCertificateChain());
 
 		final String alias = "serverEndEntityAlias";
-		if (System.getenv("SOFTHSM2_CONF") == null) {
+		if ((System.getenv("SOFTHSM2_CONF") == null) || (System.getenv("SOFTHSM2_CONF").isEmpty())) {
 			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("serverEndEntityPassword".toCharArray());
 			keyStore.setEntry(alias, serverEndEntity, entryPassword);
 			final byte[] keyStoreBytes;
