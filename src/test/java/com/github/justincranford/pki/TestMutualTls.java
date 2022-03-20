@@ -2,6 +2,8 @@ package com.github.justincranford.pki;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertNotNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -56,7 +58,21 @@ import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.cms.CMSAlgorithm;
+import org.bouncycastle.cms.CMSEnvelopedData;
+import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
+import org.bouncycastle.cms.CMSProcessableByteArray;
+import org.bouncycastle.cms.CMSTypedData;
+import org.bouncycastle.cms.RecipientId;
+import org.bouncycastle.cms.RecipientInformation;
+import org.bouncycastle.cms.RecipientInformationStore;
+import org.bouncycastle.cms.jcajce.JceCMSContentEncryptorBuilder;
+import org.bouncycastle.cms.jcajce.JceKeyTransEnvelopedRecipient;
+import org.bouncycastle.cms.jcajce.JceKeyTransRecipient;
+import org.bouncycastle.cms.jcajce.JceKeyTransRecipientId;
+import org.bouncycastle.cms.jcajce.JceKeyTransRecipientInfoGenerator;
 import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -101,6 +117,14 @@ class TestMutualTls {
 	private EndEntity server;
 	private HttpsServer httpsServer;
 
+//	@BeforeAll static void beforeAll() {
+//		Security.addProvider(new BouncyCastleProvider());
+//	}
+//
+//	@AfterAll static void afterAll() {
+//		Security.removeProvider("BC");
+//	}
+
 	@AfterEach void afterEach() throws Exception {
 		if (httpsServer != null) {
 			httpsServer.stop(0);
@@ -141,6 +165,31 @@ class TestMutualTls {
 		server = createServer(usePkcs12Server);
 
 		final String expectedResponse = "Hello World " + SECURE_RANDOM.nextInt() + "\n";
+		final byte[] expectedResponseBytes = expectedResponse.getBytes();
+
+		{	// CMS Example
+			 // Outer encryptions (KTRI=>RSA)
+			final JceKeyTransRecipientInfoGenerator ktriGenerator1 = new JceKeyTransRecipientInfoGenerator((X509Certificate) server.entry.getCertificate()).setProvider("SunJCE");
+			// Inner encryption (AES-256-CBC)
+			final OutputEncryptor cmsContentEncryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC).setProvider("SunJCE").build();
+			// Generate
+			final CMSEnvelopedDataGenerator cmsEnvelopedDataGenerator = new CMSEnvelopedDataGenerator();
+			cmsEnvelopedDataGenerator.addRecipientInfoGenerator(ktriGenerator1); // outer encryption(s)
+			final CMSTypedData cmsContent = new CMSProcessableByteArray(expectedResponseBytes);
+			final CMSEnvelopedData cmsEnvelopedData = cmsEnvelopedDataGenerator.generate(cmsContent, cmsContentEncryptor); // inner encryption
+			final byte[] cmsEnvelopedDataBytes = cmsEnvelopedData.getEncoded();
+			// Print
+			printPem("Payload", "CMS", cmsEnvelopedDataBytes);
+
+			// RSA outer encryptions
+			final RecipientId recipientId = new JceKeyTransRecipientId((X509Certificate) server.entry.getCertificate());
+			final RecipientInformationStore recipientInformationStore = cmsEnvelopedData.getRecipientInfos();
+			final RecipientInformation recipientInformation = recipientInformationStore.get(recipientId);
+			assertNotNull(recipientInformation);
+			final JceKeyTransRecipient ktriRecipient = new JceKeyTransEnvelopedRecipient(server.entry.getPrivateKey()).setProvider((server.provider instanceof AuthProvider authProvider) ? server.provider : Security.getProvider("SunJCE"));
+			final byte[] decryptedData = recipientInformation.getContent(ktriRecipient);
+			assertThat(decryptedData, is(equalTo(expectedResponseBytes)));
+		}
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
 		final SSLContext serverSslContext = createServerSslContext(server, (X509Certificate) client.entry.getCertificateChain()[1]);
@@ -293,7 +342,7 @@ class TestMutualTls {
 				(X509Certificate) clientCa.getCertificateChain()[0]
 			}
 		);
-		printCertChain("Client cert chain", (X509Certificate[]) clientEndEntity.getCertificateChain());
+		printPem("Client cert chain", "CERTIFICATE", clientEndEntity.getCertificateChain()[0].getEncoded(), clientEndEntity.getCertificateChain()[1].getEncoded());
 
 		final String alias = "clientEndEntityAlias";
 		if (usePkcs12) {
@@ -351,9 +400,9 @@ class TestMutualTls {
 					Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
 					new BigInteger(159, SECURE_RANDOM),
 					serverCaKeyPair.getPublic(),
-					new X500Name("DC=Client Root CA"),
+					new X500Name("DC=Server Root CA"),
 					serverCaKeyPair.getPrivate(),
-					new X500Name("DC=Client Root CA"),
+					new X500Name("DC=Server Root CA"),
 					"SHA512WITHRSA",
 					signatureProvider,
 					new Extension(Extension.basicConstraints, true, new BasicConstraints(0).toASN1Primitive().getEncoded()),
@@ -370,9 +419,9 @@ class TestMutualTls {
 					Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
 					new BigInteger(159, SECURE_RANDOM),
 					serverKeyPair.getPublic(),
-					new X500Name("CN=Client End Entity, DC=Client Root CA"),
+					new X500Name("CN=Server End Entity, DC=Server Root CA"),
 					serverCaKeyPair.getPrivate(),
-					new X500Name("DC=Client Root CA"),
+					new X500Name("DC=Server Root CA"),
 					"SHA512WITHRSA",
 					signatureProvider,
 					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
@@ -382,7 +431,7 @@ class TestMutualTls {
 				(X509Certificate) serverCa.getCertificateChain()[0]
 			}
 		);
-		printCertChain("Client cert chain", (X509Certificate[]) serverEndEntity.getCertificateChain());
+		printPem("Server cert chain", "CERTIFICATE", serverEndEntity.getCertificateChain()[0].getEncoded(), serverEndEntity.getCertificateChain()[1].getEncoded());
 
 		final String alias = "serverEndEntityAlias";
 		if (usePkcs12) {
@@ -428,10 +477,10 @@ class TestMutualTls {
 		
 	}
 
-	private static void printCertChain(final String msg, final X509Certificate... certs) throws Exception {
+	private static void printPem(final String msg, final String pemType, final byte[]... payloads) throws Exception {
 		LOGGER.info(msg);
-		for (final X509Certificate cert : certs) {
-			System.out.println("-----BEGIN CERTIFICATE-----\n" + Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(cert.getEncoded()) + "\n-----END CERTIFICATE-----");
+		for (final byte[] payload : payloads) {
+			System.out.println("-----BEGIN "+pemType+"-----\n" + Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(payload) + "\n-----END "+pemType+"-----");
 		}
 	}
 
