@@ -3,7 +3,10 @@ package com.github.justincranford.pki;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assume.assumeThat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -27,14 +30,19 @@ import java.security.Provider;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Security;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.security.spec.ECGenParameterSpec;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -46,6 +54,8 @@ import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.PasswordCallback;
 import javax.security.auth.callback.UnsupportedCallbackException;
+import javax.security.auth.login.LoginException;
+import javax.security.auth.x500.X500Principal;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
@@ -92,29 +102,26 @@ class TestMutualTls {
 	private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
 	// Client and server SunPKCS11 configs are in /pki/src/test/resources/
-	private static final String SUNPKCS11_CLIENT_CONF = resourceToFilePath("/SunPKCS11-client.conf");
-	private static final String SUNPKCS11_SERVER_CONF = resourceToFilePath("/SunPKCS11-server.conf");
+	private static final String SUNPKCS11_CLIENT_CA_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-client-ca-entity.conf");
+	private static final String SUNPKCS11_SERVER_CA_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-server-ca-entity.conf");
+	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
+	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
-	private static String resourceToFilePath(final String resource) throws IllegalArgumentException {
-		try {
-			return new File(TestMutualTls.class.getResource(resource).toURI()).getAbsolutePath();
-		} catch (URISyntaxException e) {
-			throw new IllegalArgumentException("");
-		}
-	}
-
-	record EndEntity(
+	// Root CA, Sub CA, Client/Server End Entity, etc
+	record Entity(
+		Provider signatureProvider, // SunRsaSign, SunEC, SunPKCS11
 		char[] password, // PKCS12 file integrity, PKCS11 HSM slot authentication
-		Provider provider, // SunJSSE, SunPKCS11
+		Provider keyStoreProvider, // SunJSSE, SunPKCS11
 		KeyStore keyStore, // PKCS12, PKCS11
-		byte[] keyStoreBytes, // PKCS12 keystore file contents, PKCS11 null
 		char[] entryPassword, // PKCS12 non-null, PKCS11 null
 		String alias, // PrivateKeyEntry alias
 		KeyStore.PrivateKeyEntry entry // PKCS12 in-memory private key, PKCS11 in-HSM private key identifier
 	) {}
 
-	private EndEntity client;
-	private EndEntity server;
+	private Entity clientCaEntity;
+	private Entity serverCaEntity;
+	private Entity clientEndEntity;
+	private Entity serverEndEntity;
 	private HttpsServer httpsServer;
 
 //	@BeforeAll static void beforeAll() {
@@ -129,47 +136,145 @@ class TestMutualTls {
 		if (httpsServer != null) {
 			httpsServer.stop(0);
 		}
-		if ((client != null) && (client.provider instanceof AuthProvider authProvider)) {
-			LOGGER.info("Logout client");
-			authProvider.logout();
-			Security.removeProvider(authProvider.getName());
-		}
-		if ((server != null) && (server.provider instanceof AuthProvider authProvider)) {
-			LOGGER.info("Logout server");
-			authProvider.logout();
-			Security.removeProvider(authProvider.getName());
-		}
+		TestMutualTls.logoutSunPkcs11(this.clientCaEntity);
+		TestMutualTls.logoutSunPkcs11(this.serverCaEntity);
+		TestMutualTls.logoutSunPkcs11(this.clientEndEntity);
+		TestMutualTls.logoutSunPkcs11(this.serverEndEntity);
 	}
 
 	@Test void testMutualTlsPkcs12ClientPkcs12Server() throws Exception {
-		this.mutualTlsHelper(true, true); // usePkcs12Client=true, usePkcs12Server=true
+		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "clientcaentitykeystorepassword".toCharArray(),  "clientcaentityentrypassword".toCharArray(), createKeyUsageCa(), null);
+		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "servercaentitykeystorepassword".toCharArray(),  "servercaentityentrypassword".toCharArray(), createKeyUsageCa(), null);
+		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "clientendentitykeystorepassword".toCharArray(), "clientendentityentrypassword".toCharArray(), createKeyUsageClient("client@example.com"), null);
+		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "serverendentitykeystorepassword".toCharArray(), "serverendentityentrypassword".toCharArray(), createKeyUsageServer("localhost"), null);
+		this.mutualTlsHelper();
 	}
+//	@Test void testMutualTlsPkcs11ClientPkcs12Server() throws Exception {
+//		this.checkForSoftHsm2ConfEnvVariable();
+//	}
+//	@Test void testMutualTlsPkcs12ClientPkcs11Server() throws Exception {
+//		this.checkForSoftHsm2ConfEnvVariable();
+//	}
+//	@Test void testMutualTlsPkcs11ClientPkcs11Server() throws Exception {
+//		this.checkForSoftHsm2ConfEnvVariable();
+//		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "clientcaentitykeystorepassword".toCharArray(),  null, SUNPKCS11_CLIENT_CA_CONF);
+//		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "servercaentitykeystorepassword".toCharArray(),  null, SUNPKCS11_SERVER_CA_CONF);
+//		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "clientendentitykeystorepassword".toCharArray(), null, SUNPKCS11_CLIENT_END_ENTITY_CONF);
+//		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "serverendentitykeystorepassword".toCharArray(), null, SUNPKCS11_SERVER_END_ENTITY_CONF);
+//		this.mutualTlsHelper();
+//	}
 
-	@Test void testMutualTlsPkcs11ClientPkcs12Server() throws Exception {
-		this.mutualTlsHelper(false, true); // usePkcs12Client=false, usePkcs12Server=true
-	}
-
-	@Test void testMutualTlsPkcs12ClientPkcs11Server() throws Exception {
-		this.mutualTlsHelper(true, false); // usePkcs12Client=true, usePkcs12Server=false
-	}
-
-	@Test void testMutualTlsPkcs11ClientPkcs11Server() throws Exception {
-		this.mutualTlsHelper(false, false); // usePkcs12Client=false, usePkcs12Server=false
-	}
-
-	private void mutualTlsHelper(boolean usePkcs12Client, boolean usePkcs12Server) throws Exception {
-		if (System.getenv("SOFTHSM2_CONF") == null) {
-			throw new IllegalArgumentException("Missing environment variable SOFTHSM2_CONF");
+	private static Entity createEntity(
+		final Entity issuerEntity,					// null for Root CA self-signed
+		final String subjectRelativeName,			// "CN=Client End Entity,serial=123";
+		final String subjectKeyPairAlgorithm,		// "EC";
+		final char[] subjectKeyStorePassword,		// "clientuser".toCharArray();
+		final char[] subjectKeyStoreEntryPassword,	// "clientuser".toCharArray();
+		final Extension[] subjectExtensions,		// BasicConstraints, KeyUsage, ExtendedKeyUsage, GeneralNames, etc
+		final String subjectSunpkcs11Conf			// SUNPKCS11_CLIENT_END_ENTITY_CONF
+	) throws Exception {
+		final Provider subjectKeyPairGeneratorProvider;	// SunPKCS11, SunRsaSign/SunEC
+		final KeyPair  subjectKeyPair;					// RSA or EC; generated and stored in-memory or in-hardware 
+		final Provider subjectKeyStoreProvider;			// SunPKCS11, SunPKCS11
+		final KeyStore subjectKeyStore;					// PKCS11, PKCS12
+		final Provider subjectSignatureProvider;
+		if (subjectSunpkcs11Conf == null) {
+			subjectSignatureProvider = subjectKeyPairGeneratorProvider = subjectKeyPairAlgorithm.equals("RSA") ? Security.getProvider("SunRsaSign") : Security.getProvider("SunEC");
+			subjectKeyPair = TestMutualTls.generateKeyPair(subjectKeyPairAlgorithm, subjectKeyPairGeneratorProvider);
+			subjectKeyStoreProvider = Security.getProvider("SunJSSE");
+			subjectKeyStore = KeyStore.getInstance("PKCS12", subjectKeyStoreProvider);
+			subjectKeyStore.load(null, null);
+		} else {
+			final AuthProvider authProvider = (AuthProvider) Security.getProvider("SunPKCS11").configure(subjectSunpkcs11Conf); // SunPKCS11 RSA||EC
+			final CallbackHandler loginCallbackHandler = new ProviderCallbackHandler(subjectKeyStorePassword); // PKCS11 C_Login pwd for Provider=SunPKCS11 and KeyStore=PKCS11
+			authProvider.login(null, loginCallbackHandler);
+			Security.addProvider(authProvider); // register AuthProvider so JCA/JCE API calls can use it for crypto operations like KeyPairGenerator
+			subjectSignatureProvider = subjectKeyPairGeneratorProvider = authProvider;
+			subjectKeyPair = TestMutualTls.generateKeyPair(subjectKeyPairAlgorithm, authProvider);
+			subjectKeyStoreProvider = authProvider;
+			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
+			TestMutualTls.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
 		}
-		client = createClient(usePkcs12Client);
-		server = createServer(usePkcs12Server);
 
+		final Provider issuerSignatureProvider;
+		final String issuerSignatureAlgorithm;
+		final PrivateKey issuerPrivateKey;
+		final String issuerName;
+		final String subjectName;
+		if (issuerEntity == null) {
+			issuerSignatureProvider = subjectSignatureProvider;
+			issuerSignatureAlgorithm = subjectKeyPairAlgorithm.equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
+			issuerPrivateKey = subjectKeyPair.getPrivate();
+			subjectName = issuerName = subjectRelativeName;
+		} else {
+			issuerSignatureProvider = issuerEntity.signatureProvider;
+			issuerSignatureAlgorithm = issuerEntity.entry.getPrivateKey().getAlgorithm().equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
+			issuerPrivateKey = issuerEntity.entry.getPrivateKey();
+			issuerName = ((X509Certificate)issuerEntity.entry.getCertificate()).getSubjectX500Principal().getName(X500Principal.RFC2253);
+			subjectName = subjectRelativeName + "," + issuerName;
+		}
+
+		final Certificate subjectCertificate = TestMutualTls.createCert(
+			Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
+			Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
+			new BigInteger(159, SECURE_RANDOM),
+			subjectKeyPair.getPublic(),
+			new X500Name(subjectName),
+			issuerPrivateKey,
+			new X500Name(issuerName),
+			issuerSignatureAlgorithm,
+			issuerSignatureProvider,
+			subjectExtensions
+		);
+		final List<Certificate> list = new ArrayList<>();
+		list.add(subjectCertificate);
+		if (issuerEntity != null) {
+			Arrays.stream(issuerEntity.entry.getCertificateChain()).forEach(c -> list.add(c));
+		}
+		final Certificate[] subjectCertificateChain = list.toArray(new X509Certificate[list.size()]);
+
+		// Print certificate chain
+		final List<byte[]> certificateBytes = new ArrayList<>(subjectCertificateChain.length);
+		Arrays.stream(subjectCertificateChain).forEach(c -> {
+			try { certificateBytes.add(c.getEncoded()); } catch (CertificateEncodingException e) { /* do nothing */ }
+		});
+		printPem("Cert chain", "CERTIFICATE", certificateBytes.toArray(new byte[0][]));
+
+		// Save entry. If SunPKCS11, ephemeral key pair is converted to permanent PKCS11 objects, and certificate chain is added with it. 
+		subjectKeyStore.setKeyEntry(subjectName, subjectKeyPair.getPrivate(), subjectKeyStoreEntryPassword, subjectCertificateChain);
+		return new Entity(subjectSignatureProvider, subjectKeyStorePassword, subjectKeyStoreProvider, subjectKeyStore, subjectKeyStoreEntryPassword, subjectName, (KeyStore.PrivateKeyEntry) subjectKeyStore.getEntry(subjectName, new KeyStore.PasswordProtection(subjectKeyStoreEntryPassword)));
+	}
+
+	private static Extension[] createKeyUsageCa() throws Exception {
+		return new Extension[] {
+			new Extension(Extension.basicConstraints, true, new BasicConstraints(0).toASN1Primitive().getEncoded()),
+			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
+		};
+	}
+
+	private static Extension[] createKeyUsageClient(final String email) throws Exception {
+		return new Extension[] {
+			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
+			new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
+			new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, email)).build().toASN1Primitive().getEncoded())
+		};
+	}
+
+	private static Extension[] createKeyUsageServer(final String hostname) throws Exception {
+		return new Extension[] {
+			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
+			new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
+			new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.dNSName, hostname)).build().toASN1Primitive().getEncoded())
+		};
+	}
+
+	private void mutualTlsHelper() throws Exception {
 		final String expectedResponse = "Hello World " + SECURE_RANDOM.nextInt() + "\n";
 		final byte[] expectedResponseBytes = expectedResponse.getBytes();
 
 		{	// CMS Example
-			 // Outer encryptions (KTRI=>RSA)
-			final JceKeyTransRecipientInfoGenerator ktriGenerator1 = new JceKeyTransRecipientInfoGenerator((X509Certificate) server.entry.getCertificate()).setProvider("SunJCE");
+			// Outer encryptions (KTRI=>RSA)
+			final JceKeyTransRecipientInfoGenerator ktriGenerator1 = new JceKeyTransRecipientInfoGenerator((X509Certificate) this.serverEndEntity.entry.getCertificate()).setProvider("SunJCE");
 			// Inner encryption (AES-256-CBC)
 			final OutputEncryptor cmsContentEncryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC).setProvider("SunJCE").build();
 			// Generate
@@ -182,17 +287,17 @@ class TestMutualTls {
 			printPem("Payload", "CMS", cmsEnvelopedDataBytes);
 
 			// RSA outer encryptions
-			final RecipientId recipientId = new JceKeyTransRecipientId((X509Certificate) server.entry.getCertificate());
+			final RecipientId recipientId = new JceKeyTransRecipientId((X509Certificate) this.serverEndEntity.entry.getCertificate());
 			final RecipientInformationStore recipientInformationStore = cmsEnvelopedData.getRecipientInfos();
 			final RecipientInformation recipientInformation = recipientInformationStore.get(recipientId);
 			assertNotNull(recipientInformation);
-			final JceKeyTransRecipient ktriRecipient = new JceKeyTransEnvelopedRecipient(server.entry.getPrivateKey()).setProvider((server.provider instanceof AuthProvider authProvider) ? server.provider : Security.getProvider("SunJCE"));
+			final JceKeyTransRecipient ktriRecipient = new JceKeyTransEnvelopedRecipient(this.serverEndEntity.entry.getPrivateKey()).setProvider((this.serverEndEntity.keyStoreProvider instanceof AuthProvider authProvider) ? serverEndEntity.keyStoreProvider : Security.getProvider("SunJCE"));
 			final byte[] decryptedData = recipientInformation.getContent(ktriRecipient);
 			assertThat(decryptedData, is(equalTo(expectedResponseBytes)));
 		}
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-		final SSLContext serverSslContext = createServerSslContext(server, (X509Certificate) client.entry.getCertificateChain()[1]);
+		final SSLContext serverSslContext = createServerSslContext(this.serverEndEntity, (X509Certificate) this.clientEndEntity.entry.getCertificateChain()[1]);
 		this.httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 443), 0);
 		this.httpsServer.setHttpsConfigurator(new HttpsConfigurator(serverSslContext) {
 			@Override public void configure(final HttpsParameters httpsParameters) {
@@ -215,7 +320,7 @@ class TestMutualTls {
 		this.httpsServer.start();
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-		final SSLContext clientSslContext = createClientSslContext(client, (X509Certificate) server.entry.getCertificateChain()[1]);
+		final SSLContext clientSslContext = createClientSslContext(this.clientEndEntity, (X509Certificate) this.serverEndEntity.entry.getCertificateChain()[1]);
 		final HttpClient httpClient = HttpClient.newBuilder().sslContext(clientSslContext).connectTimeout(Duration.ofSeconds(2)).build();
 
 		// Use HTTPS client to send a GET request to the HTTPS server, to verify if TLS handshake succeeds
@@ -229,7 +334,7 @@ class TestMutualTls {
 
 	// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
 	private SSLContext createClientSslContext(
-		final EndEntity client,
+		final Entity client,
 		final X509Certificate serverCaCert
 	) throws Exception {
 		final KeyStore clientTrustStore = KeyStore.getInstance("PKCS12", "SunJSSE");
@@ -250,7 +355,7 @@ class TestMutualTls {
 	}
 
 	private SSLContext createServerSslContext(
-		final EndEntity server,
+		final Entity server,
 		final X509Certificate clientCaCert
 	) throws Exception {
 		final KeyStore serverTrustStore = KeyStore.getInstance("PKCS12", "SunJSSE");
@@ -268,184 +373,6 @@ class TestMutualTls {
 		final SSLContext serverSslContext = SSLContext.getInstance("TLSv1.3", "SunJSSE");
 		serverSslContext.init(serverKeyManagers, serverTrustManagers, SECURE_RANDOM);
 		return serverSslContext;
-	}
-
-	private static EndEntity createClient(final boolean usePkcs12) throws Exception {
-		final char[] keyStorePassword = "clientuser".toCharArray();
-		final KeyStore keyStore;
-		final Provider keyStoreProvider; // PKCS12 SunJSSE, PKCS11 SunPKCS11
-		final Provider keyPairGeneratorProvider; // PKCS12 SunEC, PKCS11 SunPKCS11
-		final Provider signatureProvider; // PKCS12 SunEC, PKCS11 SunPKCS11
-		if (usePkcs12) {
-			keyStoreProvider = Security.getProvider("SunJSSE");
-			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
-			keyStore.load(null, null);
-			keyPairGeneratorProvider = signatureProvider = Security.getProvider("SunEC");
-		} else {
-			final ProviderCallbackHandler providerCallbackHandler = new ProviderCallbackHandler(keyStorePassword);
-			final AuthProvider authProvider = (AuthProvider) Security.getProvider("SunPKCS11").configure(SUNPKCS11_CLIENT_CONF);
-			authProvider.login(null, providerCallbackHandler);
-			keyStoreProvider = authProvider;
-			Security.addProvider(authProvider); // register provider
-			final KeyStore.CallbackHandlerProtection keyStoreCallbackHandler = new KeyStore.CallbackHandlerProtection(providerCallbackHandler);
-			final KeyStore.Builder keyStoreBuilder = KeyStore.Builder.newInstance("PKCS11", authProvider, keyStoreCallbackHandler);
-			keyStore = keyStoreBuilder.getKeyStore();
-			keyPairGeneratorProvider = signatureProvider = keyStoreProvider;
-			final StringBuilder sb = new StringBuilder(authProvider.getName() + " existing entries:\n");
-			for (final String alias : Collections.list(keyStore.aliases())) {
-				sb.append("Entry[").append(alias).append("]: cert=").append(keyStore.isCertificateEntry(alias)).append(", key=").append(keyStore.isKeyEntry(alias)).append('\n');
-				keyStore.deleteEntry(alias);
-			}
-			LOGGER.info(sb.toString());
-		}
-
-		final KeyPairGenerator clientKeyPairGenerator = KeyPairGenerator.getInstance("EC", keyPairGeneratorProvider);
-		clientKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST P-521
-
-		final KeyPair clientCaKeyPair = clientKeyPairGenerator.generateKeyPair();
-		final KeyStore.PrivateKeyEntry clientCa = new KeyStore.PrivateKeyEntry(
-			clientCaKeyPair.getPrivate(),
-			new X509Certificate[] {
-				createCert(
-					Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
-					Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
-					new BigInteger(159, SECURE_RANDOM),
-					clientCaKeyPair.getPublic(),
-					new X500Name("DC=Client Root CA"),
-					clientCaKeyPair.getPrivate(),
-					new X500Name("DC=Client Root CA"),
-					"SHA512withECDSA",
-					signatureProvider,
-					new Extension(Extension.basicConstraints, true, new BasicConstraints(0).toASN1Primitive().getEncoded()),
-					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
-				)
-			}
-		);
-		final KeyPair clientKeyPair = clientKeyPairGenerator.generateKeyPair();
-		final KeyStore.PrivateKeyEntry clientEndEntity = new KeyStore.PrivateKeyEntry(
-			clientKeyPair.getPrivate(),
-			new X509Certificate[] {
-				createCert(
-					Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
-					Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
-					new BigInteger(159, SECURE_RANDOM),
-					clientKeyPair.getPublic(),
-					new X500Name("CN=Client End Entity, DC=Client Root CA"),
-					clientCaKeyPair.getPrivate(),
-					new X500Name("DC=Client Root CA"),
-					"SHA512withECDSA",
-					signatureProvider,
-					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-					new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
-					new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, "client@example.com")).build().toASN1Primitive().getEncoded())
-				),
-				(X509Certificate) clientCa.getCertificateChain()[0]
-			}
-		);
-		printPem("Client cert chain", "CERTIFICATE", clientEndEntity.getCertificateChain()[0].getEncoded(), clientEndEntity.getCertificateChain()[1].getEncoded());
-
-		final String alias = "clientEndEntityAlias";
-		if (usePkcs12) {
-			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("clientEndEntityPassword".toCharArray());
-			keyStore.setEntry(alias, clientEndEntity, entryPassword);
-			final byte[] keyStoreBytes;
-			try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-				keyStore.store(baos, keyStorePassword);
-				keyStoreBytes = baos.toByteArray();
-			}
-			return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, keyStoreBytes, entryPassword.getPassword(), alias, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
-		}
-		keyStore.setEntry(alias, clientEndEntity, null);
-		return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, null, null, alias, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
-	}
-
-	private static EndEntity createServer(final boolean usePkcs12) throws Exception {
-		final char[] keyStorePassword = "serveruser".toCharArray();
-		final KeyStore keyStore;
-		final Provider keyStoreProvider; // PKCS12 SunJSSE, PKCS11 SunPKCS11
-		final Provider keyPairGeneratorProvider; // PKCS12 SunRsaSign, PKCS11 SunPKCS11
-		final Provider signatureProvider; // PKCS12 SunRsaSign, PKCS11 SunPKCS11
-		if (usePkcs12) {
-			keyStoreProvider = Security.getProvider("SunJSSE");
-			keyStore = KeyStore.getInstance("PKCS12", keyStoreProvider);
-			keyStore.load(null, null);
-			keyPairGeneratorProvider = signatureProvider = Security.getProvider("SunRsaSign");
-		} else {
-			final ProviderCallbackHandler providerCallbackHandler = new ProviderCallbackHandler(keyStorePassword);
-			final AuthProvider authProvider = (AuthProvider) Security.getProvider("SunPKCS11").configure(SUNPKCS11_SERVER_CONF);
-			authProvider.login(null, providerCallbackHandler);
-			keyStoreProvider = authProvider;
-			Security.addProvider(authProvider); // register provider
-			final KeyStore.CallbackHandlerProtection keyStoreCallbackHandler = new KeyStore.CallbackHandlerProtection(providerCallbackHandler);
-			final KeyStore.Builder keyStoreBuilder = KeyStore.Builder.newInstance("PKCS11", authProvider, keyStoreCallbackHandler);
-			keyStore = keyStoreBuilder.getKeyStore();
-			keyPairGeneratorProvider = signatureProvider = keyStoreProvider;
-			final StringBuilder sb = new StringBuilder(authProvider.getName() + " existing entries:\n");
-			for (final String alias : Collections.list(keyStore.aliases())) {
-				sb.append("Entry[").append(alias).append("]: cert=").append(keyStore.isCertificateEntry(alias)).append(", key=").append(keyStore.isKeyEntry(alias)).append('\n');
-				keyStore.deleteEntry(alias);
-			}
-			LOGGER.info(sb.toString());
-		}
-
-		final KeyPairGenerator serverKeyPairGenerator = KeyPairGenerator.getInstance("RSA", keyPairGeneratorProvider);
-		serverKeyPairGenerator.initialize(2048);
-
-		final KeyPair serverCaKeyPair = serverKeyPairGenerator.generateKeyPair();
-		final KeyStore.PrivateKeyEntry serverCa = new KeyStore.PrivateKeyEntry(
-			serverCaKeyPair.getPrivate(),
-			new X509Certificate[] {
-				createCert(
-					Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
-					Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
-					new BigInteger(159, SECURE_RANDOM),
-					serverCaKeyPair.getPublic(),
-					new X500Name("DC=Server Root CA"),
-					serverCaKeyPair.getPrivate(),
-					new X500Name("DC=Server Root CA"),
-					"SHA512WITHRSA",
-					signatureProvider,
-					new Extension(Extension.basicConstraints, true, new BasicConstraints(0).toASN1Primitive().getEncoded()),
-					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
-				)
-			}
-		);
-		final KeyPair serverKeyPair = serverKeyPairGenerator.generateKeyPair();
-		final KeyStore.PrivateKeyEntry serverEndEntity = new KeyStore.PrivateKeyEntry(
-			serverKeyPair.getPrivate(),
-			new X509Certificate[] {
-				createCert(
-					Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
-					Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
-					new BigInteger(159, SECURE_RANDOM),
-					serverKeyPair.getPublic(),
-					new X500Name("CN=Server End Entity, DC=Server Root CA"),
-					serverCaKeyPair.getPrivate(),
-					new X500Name("DC=Server Root CA"),
-					"SHA512WITHRSA",
-					signatureProvider,
-					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-					new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
-					new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.dNSName, "localhost")).build().toASN1Primitive().getEncoded())
-				),
-				(X509Certificate) serverCa.getCertificateChain()[0]
-			}
-		);
-		printPem("Server cert chain", "CERTIFICATE", serverEndEntity.getCertificateChain()[0].getEncoded(), serverEndEntity.getCertificateChain()[1].getEncoded());
-
-		final String alias = "serverEndEntityAlias";
-		if (usePkcs12) {
-			final KeyStore.PasswordProtection entryPassword = new KeyStore.PasswordProtection("serverEndEntityPassword".toCharArray());
-			keyStore.setEntry(alias, serverEndEntity, entryPassword);
-			final byte[] keyStoreBytes;
-			try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-				keyStore.store(baos, keyStorePassword);
-				keyStoreBytes = baos.toByteArray();
-			}
-			return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, keyStoreBytes, entryPassword.getPassword(), alias, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, entryPassword));
-		}
-		keyStore.setEntry(alias, serverEndEntity, null);
-		return new EndEntity(keyStorePassword, keyStoreProvider, keyStore, null, null, alias, (KeyStore.PrivateKeyEntry) keyStore.getEntry(alias, null));
 	}
 
 	private static X509Certificate createCert(
@@ -496,5 +423,62 @@ class TestMutualTls {
 				}
 			}
 		}
+	}
+
+	private static String resourceToFilePath(final String resource) throws IllegalArgumentException {
+		try {
+			return new File(TestMutualTls.class.getResource(resource).toURI()).getAbsolutePath();
+		} catch (URISyntaxException e) {
+			throw new IllegalArgumentException("");
+		}
+	}
+
+	private static void logoutSunPkcs11(final Entity entity) {
+		if ((entity != null) && (entity.keyStoreProvider instanceof AuthProvider authProvider)) {
+			try {
+				LOGGER.info("Logout " + entity.keyStoreProvider.getName());
+				authProvider.logout();
+			} catch (SecurityException|LoginException e) {
+				LOGGER.error("Logout " + entity.keyStoreProvider.getName() + " exception", e);
+			}
+			try {
+				LOGGER.info("Remove " + entity.keyStoreProvider.getName());
+				Security.removeProvider(authProvider.getName());
+			} catch (SecurityException e) {
+				LOGGER.error("Remove " + entity.keyStoreProvider.getName() + " exception", e);
+			}
+		}
+	}
+
+	private static void printKeyStoreEntryAliases(final KeyStore keyStore, final AuthProvider authProvider) throws Exception {
+		final StringBuilder sb = new StringBuilder(authProvider.getName() + " existing entries:\n");
+		for (final String alias : Collections.list(keyStore.aliases())) {
+			sb.append("Entry[").append(alias).append("]: cert=").append(keyStore.isCertificateEntry(alias)).append(", key=").append(keyStore.isKeyEntry(alias)).append('\n');
+			keyStore.deleteEntry(alias);
+		}
+		LOGGER.info(sb.toString());
+	}
+
+	private static byte[] getKeyStoreBytes(final char[] subjectKeyStorePassword, final KeyStore subjectKeyStore) throws Exception {
+		final byte[] keyStoreBytes;
+		try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+			subjectKeyStore.store(baos, subjectKeyStorePassword);
+			keyStoreBytes = baos.toByteArray();
+		}
+		return keyStoreBytes;
+	}
+
+	private static KeyPair generateKeyPair(final String algorithm, final Provider provider) throws Exception {
+		final KeyPairGenerator subjectKeyPairGenerator = KeyPairGenerator.getInstance(algorithm, provider);
+		if (algorithm.equals("RSA")) {
+			subjectKeyPairGenerator.initialize(2048); // NIST RSA-3072
+		} else {
+			subjectKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST EC P-521
+		}
+		return subjectKeyPairGenerator.generateKeyPair();
+	}
+
+	private void checkForSoftHsm2ConfEnvVariable() {
+		assumeThat("Environment variable SOFTHSM2_CONF required for SunPKCS11 test", System.getenv("SOFTHSM2_CONF"), is(not(nullValue())));
 	}
 }
