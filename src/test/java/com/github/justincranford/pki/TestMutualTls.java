@@ -100,14 +100,44 @@ import com.sun.net.httpserver.HttpsServer;
 class TestMutualTls {
 	private static final Logger LOGGER = LoggerFactory.getLogger(TestMutualTls.class);
 	private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
+	
 	// Client and server SunPKCS11 configs are in /pki/src/test/resources/
 	private static final String SUNPKCS11_CLIENT_CA_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-client-ca-entity.conf");
 	private static final String SUNPKCS11_SERVER_CA_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-server-ca-entity.conf");
 	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
 	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
-	// Root CA, Sub CA, Client/Server End Entity, etc
+	private static final Extension[] EXTENSIONS_ROOT_CA;
+	private static final Extension[] EXTENSIONS_CLIENT;
+	private static final Extension[] EXTENSIONS_SERVER;
+	static {
+		final int    caPathLenConstraint    = 0; // 0 sub-CAs under the CA, only end-entities
+		final String clientSanEmail         = "client1@example.com";
+		final String clientSanDirectoryName = "CN=client1,OU=org unit,O=orgDC=example,DC=com";
+		final String serverSanHostname      = "localhost";
+		final String serverSanAddressIp4    = "127.0.0.1";
+		final String serverSanAddressIp6    = "::1";
+		try {
+			EXTENSIONS_ROOT_CA = new Extension[] {
+				new Extension(Extension.basicConstraints, true, new BasicConstraints(caPathLenConstraint).toASN1Primitive().getEncoded()),
+				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
+			};
+			EXTENSIONS_CLIENT = new Extension[] {
+				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
+				new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
+				new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, clientSanEmail)).addName(new GeneralName(GeneralName.directoryName, clientSanDirectoryName)).build().toASN1Primitive().getEncoded())
+			};
+			EXTENSIONS_SERVER = new Extension[] {
+				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
+				new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
+				new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.dNSName, serverSanHostname)).addName(new GeneralName(GeneralName.iPAddress, serverSanAddressIp4)).addName(new GeneralName(GeneralName.iPAddress, serverSanAddressIp6)).build().toASN1Primitive().getEncoded())
+			};
+		} catch(Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	// Root CA, Sub CA, Cross-cert, Client/Server End Entity, Client/Server self-signed, etc
 	record Entity(
 		Provider signatureProvider, // SunRsaSign, SunEC, SunPKCS11
 		char[] password, // PKCS12 file integrity, PKCS11 HSM slot authentication
@@ -125,11 +155,11 @@ class TestMutualTls {
 	private HttpsServer httpsServer;
 
 //	@BeforeAll static void beforeAll() {
-//		Security.addProvider(new BouncyCastleProvider());
+//		Security.addProvider(new BouncyCastleProvider());	// Required if making any JCA/JCE calls to BC
 //	}
 //
 //	@AfterAll static void afterAll() {
-//		Security.removeProvider("BC");
+//		Security.removeProvider("BC");	// Cleanup in case other tests want to add/remove BC provider
 //	}
 
 	@AfterEach void afterEach() throws Exception {
@@ -142,36 +172,69 @@ class TestMutualTls {
 		TestMutualTls.logoutSunPkcs11(this.serverEndEntity);
 	}
 
-	@Test void testMutualTlsPkcs12ClientPkcs12Server() throws Exception {
-		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "clientcaentitykeystorepassword".toCharArray(),  "clientcaentityentrypassword".toCharArray(), createKeyUsageCa(), null);
-		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "servercaentitykeystorepassword".toCharArray(),  "servercaentityentrypassword".toCharArray(), createKeyUsageCa(), null);
-		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "clientendentitykeystorepassword".toCharArray(), "clientendentityentrypassword".toCharArray(), createKeyUsageClient("client@example.com"), null);
-		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "serverendentitykeystorepassword".toCharArray(), "serverendentityentrypassword".toCharArray(), createKeyUsageServer("localhost"), null);
+	@Test void testMutualTlsAllPkcs12() throws Exception {
+		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "ClientCA".toCharArray(), "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "ServerCA".toCharArray(), "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "Client".toCharArray(),   "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
+		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "Server".toCharArray(),   "Server".toCharArray(),   EXTENSIONS_SERVER, null);
 		this.mutualTlsHelper();
 	}
-//	@Test void testMutualTlsPkcs11ClientPkcs12Server() throws Exception {
-//		this.checkForSoftHsm2ConfEnvVariable();
-//	}
-//	@Test void testMutualTlsPkcs12ClientPkcs11Server() throws Exception {
-//		this.checkForSoftHsm2ConfEnvVariable();
-//	}
-//	@Test void testMutualTlsPkcs11ClientPkcs11Server() throws Exception {
-//		this.checkForSoftHsm2ConfEnvVariable();
-//		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "clientcaentitykeystorepassword".toCharArray(),  null, SUNPKCS11_CLIENT_CA_CONF);
-//		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "servercaentitykeystorepassword".toCharArray(),  null, SUNPKCS11_SERVER_CA_CONF);
-//		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "clientendentitykeystorepassword".toCharArray(), null, SUNPKCS11_CLIENT_END_ENTITY_CONF);
-//		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "serverendentitykeystorepassword".toCharArray(), null, SUNPKCS11_SERVER_END_ENTITY_CONF);
-//		this.mutualTlsHelper();
-//	}
+	@Test void testMutualTlsAllPkcs11() throws Exception {
+		this.checkForSoftHsm2ConfEnvVariable();
+		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		this.mutualTlsHelper();
+	}
+	@Test void testMutualTlsMixedPkcs12AndPkcs11() throws Exception {
+		if (SECURE_RANDOM.nextBoolean()) {
+			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		} else {
+			this.checkForSoftHsm2ConfEnvVariable();
+			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+		}
+		if (SECURE_RANDOM.nextBoolean()) {
+			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		} else {
+			this.checkForSoftHsm2ConfEnvVariable();
+			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+		}
+		if (SECURE_RANDOM.nextBoolean()) {
+			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
+		} else {
+			this.checkForSoftHsm2ConfEnvVariable();
+			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		}
+		if (SECURE_RANDOM.nextBoolean()) {
+			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
+		} else {
+			this.checkForSoftHsm2ConfEnvVariable();
+			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		}
+		this.mutualTlsHelper();
+	}
 
+	/**
+	 * Create root CA, sub CA, RA, cross-cert, CA-signed end-entity, self-signed end-entity, etc
+	 * @param issuerEntity Null if self-signed, otherwise it is a non-null issuer 
+	 * @param subjectRelativeName Subject RDN, where Subject DN will be SubjectRDN,IssuerDN or SubjectRDN (self-issued)
+	 * @param subjectKeyPairAlgorithm RSA or EC 
+	 * @param subjectKeyStorePassword PKCS#12 or PKCS11 keystore password
+	 * @param subjectKeyStoreEntryPassword PKCS#12 entry password, or null for PKCS11 entries
+	 * @param subjectExtensions Array of extensions to add to the subject certificate
+	 * @param subjectSunpkcs11Conf Null for PKCS#12, non-null file path for PKCS#11
+	 * @return Entity object containing links to the KeyStore, KeysStore provider, password, alias, entry password, and signature provider
+	 * @throws Exception Unexpected error
+	 */
 	private static Entity createEntity(
 		final Entity issuerEntity,					// null for Root CA self-signed
 		final String subjectRelativeName,			// "CN=Client End Entity,serial=123";
 		final String subjectKeyPairAlgorithm,		// "EC";
-		final char[] subjectKeyStorePassword,		// "clientuser".toCharArray();
-		final char[] subjectKeyStoreEntryPassword,	// "clientuser".toCharArray();
+		final char[] subjectKeyStorePassword,		// "Client".toCharArray();
+		final char[] subjectKeyStoreEntryPassword,	// "Client".toCharArray();
 		final Extension[] subjectExtensions,		// BasicConstraints, KeyUsage, ExtendedKeyUsage, GeneralNames, etc
-		final String subjectSunpkcs11Conf			// SUNPKCS11_CLIENT_END_ENTITY_CONF
+		final String subjectSunpkcs11Conf			// SUNPKCS11_CLIENT_END_ENTITY_CONF resolved file path
 	) throws Exception {
 		final Provider subjectKeyPairGeneratorProvider;	// SunPKCS11, SunRsaSign/SunEC
 		final KeyPair  subjectKeyPair;					// RSA or EC; generated and stored in-memory or in-hardware 
@@ -243,29 +306,6 @@ class TestMutualTls {
 		// Save entry. If SunPKCS11, ephemeral key pair is converted to permanent PKCS11 objects, and certificate chain is added with it. 
 		subjectKeyStore.setKeyEntry(subjectName, subjectKeyPair.getPrivate(), subjectKeyStoreEntryPassword, subjectCertificateChain);
 		return new Entity(subjectSignatureProvider, subjectKeyStorePassword, subjectKeyStoreProvider, subjectKeyStore, subjectKeyStoreEntryPassword, subjectName, (KeyStore.PrivateKeyEntry) subjectKeyStore.getEntry(subjectName, new KeyStore.PasswordProtection(subjectKeyStoreEntryPassword)));
-	}
-
-	private static Extension[] createKeyUsageCa() throws Exception {
-		return new Extension[] {
-			new Extension(Extension.basicConstraints, true, new BasicConstraints(0).toASN1Primitive().getEncoded()),
-			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
-		};
-	}
-
-	private static Extension[] createKeyUsageClient(final String email) throws Exception {
-		return new Extension[] {
-			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-			new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
-			new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, email)).build().toASN1Primitive().getEncoded())
-		};
-	}
-
-	private static Extension[] createKeyUsageServer(final String hostname) throws Exception {
-		return new Extension[] {
-			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-			new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
-			new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.dNSName, hostname)).build().toASN1Primitive().getEncoded())
-		};
 	}
 
 	private void mutualTlsHelper() throws Exception {
