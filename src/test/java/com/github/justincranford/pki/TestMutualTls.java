@@ -73,18 +73,27 @@ import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
 import org.bouncycastle.cms.CMSProcessableByteArray;
 import org.bouncycastle.cms.CMSTypedData;
+import org.bouncycastle.cms.Recipient;
 import org.bouncycastle.cms.RecipientId;
+import org.bouncycastle.cms.RecipientInfoGenerator;
 import org.bouncycastle.cms.RecipientInformation;
 import org.bouncycastle.cms.RecipientInformationStore;
 import org.bouncycastle.cms.jcajce.JceCMSContentEncryptorBuilder;
+import org.bouncycastle.cms.jcajce.JceKeyAgreeEnvelopedRecipient;
+import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipient;
+import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipientId;
+import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipientInfoGenerator;
 import org.bouncycastle.cms.jcajce.JceKeyTransEnvelopedRecipient;
 import org.bouncycastle.cms.jcajce.JceKeyTransRecipient;
 import org.bouncycastle.cms.jcajce.JceKeyTransRecipientId;
 import org.bouncycastle.cms.jcajce.JceKeyTransRecipientInfoGenerator;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -154,13 +163,13 @@ class TestMutualTls {
 	private Entity serverEndEntity;
 	private HttpsServer httpsServer;
 
-//	@BeforeAll static void beforeAll() {
-//		Security.addProvider(new BouncyCastleProvider());	// Required if making any JCA/JCE calls to BC
-//	}
-//
-//	@AfterAll static void afterAll() {
-//		Security.removeProvider("BC");	// Cleanup in case other tests want to add/remove BC provider
-//	}
+	@BeforeAll static void beforeAll() {
+		Security.addProvider(new BouncyCastleProvider());	// Required if making any JCA/JCE calls to BC
+	}
+
+	@AfterAll static void afterAll() {
+		Security.removeProvider("BC");	// Cleanup in case other tests want to add/remove BC provider
+	}
 
 	@AfterEach void afterEach() throws Exception {
 		if (httpsServer != null) {
@@ -172,14 +181,28 @@ class TestMutualTls {
 		TestMutualTls.logoutSunPkcs11(this.serverEndEntity);
 	}
 
-	@Test void testMutualTlsAllPkcs12() throws Exception {
+	@Test void testMutualTlsSelfSignedAllP12() throws Exception {
+		this.clientCaEntity  = null;
+		this.serverCaEntity  = null;
+		this.clientEndEntity = TestMutualTls.createEntity(null,                "CN=Client",    "EC",  "Client".toCharArray(),   "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
+		this.serverEndEntity = TestMutualTls.createEntity(null,                "CN=Server",    "RSA", "Server".toCharArray(),   "Server".toCharArray(),   EXTENSIONS_SERVER, null);
+		this.mutualTlsHelper();
+	}
+	@Test void testMutualTlsSelfSignedAllP11() throws Exception {
+		this.clientCaEntity  = null;
+		this.serverCaEntity  = null;
+		this.clientEndEntity = TestMutualTls.createEntity(null,                "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		this.serverEndEntity = TestMutualTls.createEntity(null,                "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		this.mutualTlsHelper();
+	}
+	@Test void testMutualTlsCaSignedAllP12() throws Exception {
 		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "ClientCA".toCharArray(), "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "ServerCA".toCharArray(), "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "Client".toCharArray(),   "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
 		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "Server".toCharArray(),   "Server".toCharArray(),   EXTENSIONS_SERVER, null);
 		this.mutualTlsHelper();
 	}
-	@Test void testMutualTlsAllPkcs11() throws Exception {
+	@Test void testMutualTlsCaSignedAllP11() throws Exception {
 		this.checkForSoftHsm2ConfEnvVariable();
 		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
 		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
@@ -187,30 +210,34 @@ class TestMutualTls {
 		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		this.mutualTlsHelper();
 	}
-	@Test void testMutualTlsMixedPkcs12AndPkcs11() throws Exception {
+	@Test void testMutualTlsCaSignedMixedP12AndP11() throws Exception {
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.clientCaEntity  = null;
+		} else if (SECURE_RANDOM.nextBoolean()) {
+			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
 		}
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.serverCaEntity  = null;
+		} else if (SECURE_RANDOM.nextBoolean()) {
+			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
 		}
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
+			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
 		}
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
+			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		}
 		this.mutualTlsHelper();
 	}
@@ -312,14 +339,21 @@ class TestMutualTls {
 		final String expectedResponse = "Hello World " + SECURE_RANDOM.nextInt() + "\n";
 		final byte[] expectedResponseBytes = expectedResponse.getBytes();
 
-		{	// CMS Example
+		if (! (this.clientEndEntity.keyStoreProvider instanceof AuthProvider authProvider)) {	// CMS Example
 			// Outer encryptions (KTRI=>RSA)
-			final JceKeyTransRecipientInfoGenerator ktriGenerator1 = new JceKeyTransRecipientInfoGenerator((X509Certificate) this.serverEndEntity.entry.getCertificate()).setProvider("SunJCE");
+			final X509Certificate clientCertificate = (X509Certificate) this.clientEndEntity.entry.getCertificate();
+			final RecipientInfoGenerator recipientInfoGenerator;
+			if (clientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
+				recipientInfoGenerator = new JceKeyTransRecipientInfoGenerator(clientCertificate).setProvider("SunJCE");
+			} else {
+				recipientInfoGenerator = new JceKeyAgreeRecipientInfoGenerator(CMSAlgorithm.ECDH_SHA1KDF, this.clientEndEntity.entry.getPrivateKey(), clientCertificate.getPublicKey(), CMSAlgorithm.AES256_WRAP).setProvider("BC");
+				((JceKeyAgreeRecipientInfoGenerator) recipientInfoGenerator).addRecipient(clientCertificate);
+			}
 			// Inner encryption (AES-256-CBC)
 			final OutputEncryptor cmsContentEncryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC).setProvider("SunJCE").build();
 			// Generate
 			final CMSEnvelopedDataGenerator cmsEnvelopedDataGenerator = new CMSEnvelopedDataGenerator();
-			cmsEnvelopedDataGenerator.addRecipientInfoGenerator(ktriGenerator1); // outer encryption(s)
+			cmsEnvelopedDataGenerator.addRecipientInfoGenerator(recipientInfoGenerator); // outer encryption(s)
 			final CMSTypedData cmsContent = new CMSProcessableByteArray(expectedResponseBytes);
 			final CMSEnvelopedData cmsEnvelopedData = cmsEnvelopedDataGenerator.generate(cmsContent, cmsContentEncryptor); // inner encryption
 			final byte[] cmsEnvelopedDataBytes = cmsEnvelopedData.getEncoded();
@@ -327,17 +361,26 @@ class TestMutualTls {
 			printPem("Payload", "CMS", cmsEnvelopedDataBytes);
 
 			// RSA outer encryptions
-			final RecipientId recipientId = new JceKeyTransRecipientId((X509Certificate) this.serverEndEntity.entry.getCertificate());
+			final RecipientId recipientId;
+			final Recipient recipient;
+			if (clientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
+				recipientId = new JceKeyTransRecipientId(clientCertificate);
+				recipient = new JceKeyTransEnvelopedRecipient(this.clientEndEntity.entry.getPrivateKey()).setProvider((this.clientEndEntity.keyStoreProvider instanceof AuthProvider authProvider) ? serverEndEntity.keyStoreProvider : Security.getProvider("SunJCE"));
+			} else {
+				recipientId = new JceKeyAgreeRecipientId(clientCertificate);
+				recipient = new JceKeyAgreeEnvelopedRecipient(this.clientEndEntity.entry.getPrivateKey()).setProvider((this.clientEndEntity.keyStoreProvider instanceof AuthProvider authProvider) ? serverEndEntity.keyStoreProvider : Security.getProvider("BC"));
+			}
 			final RecipientInformationStore recipientInformationStore = cmsEnvelopedData.getRecipientInfos();
 			final RecipientInformation recipientInformation = recipientInformationStore.get(recipientId);
 			assertNotNull(recipientInformation);
-			final JceKeyTransRecipient ktriRecipient = new JceKeyTransEnvelopedRecipient(this.serverEndEntity.entry.getPrivateKey()).setProvider((this.serverEndEntity.keyStoreProvider instanceof AuthProvider authProvider) ? serverEndEntity.keyStoreProvider : Security.getProvider("SunJCE"));
-			final byte[] decryptedData = recipientInformation.getContent(ktriRecipient);
+			final byte[] decryptedData = recipientInformation.getContent(recipient);
 			assertThat(decryptedData, is(equalTo(expectedResponseBytes)));
 		}
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-		final SSLContext serverSslContext = createServerSslContext(this.serverEndEntity, (X509Certificate) this.clientEndEntity.entry.getCertificateChain()[1]);
+		final Certificate[] clientCertificateChain = this.clientEndEntity.entry.getCertificateChain();
+		final X509Certificate lastCertificateClientCertificateChain = (X509Certificate) clientCertificateChain[clientCertificateChain.length-1];
+		final SSLContext serverSslContext = createServerSslContext(this.serverEndEntity, lastCertificateClientCertificateChain);
 		this.httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 443), 0);
 		this.httpsServer.setHttpsConfigurator(new HttpsConfigurator(serverSslContext) {
 			@Override public void configure(final HttpsParameters httpsParameters) {
@@ -360,7 +403,9 @@ class TestMutualTls {
 		this.httpsServer.start();
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-		final SSLContext clientSslContext = createClientSslContext(this.clientEndEntity, (X509Certificate) this.serverEndEntity.entry.getCertificateChain()[1]);
+		final Certificate[] serverCertificateChain = this.serverEndEntity.entry.getCertificateChain();
+		final X509Certificate lastCertificateServerCertificateChain = (X509Certificate) serverCertificateChain[serverCertificateChain.length-1];
+		final SSLContext clientSslContext = createClientSslContext(this.clientEndEntity, lastCertificateServerCertificateChain);
 		final HttpClient httpClient = HttpClient.newBuilder().sslContext(clientSslContext).connectTimeout(Duration.ofSeconds(2)).build();
 
 		// Use HTTPS client to send a GET request to the HTTPS server, to verify if TLS handshake succeeds
