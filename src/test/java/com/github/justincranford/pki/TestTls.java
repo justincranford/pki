@@ -71,6 +71,7 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.cms.CMSAlgorithm;
 import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
+import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSProcessableByteArray;
 import org.bouncycastle.cms.CMSTypedData;
 import org.bouncycastle.cms.Recipient;
@@ -106,21 +107,37 @@ import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 
 @DisplayName("Test Mutual TLS")
-class TestMutualTls {
-	private static final Logger LOGGER = LoggerFactory.getLogger(TestMutualTls.class);
+class TestTls {
+	private static final Logger LOGGER = LoggerFactory.getLogger(TestTls.class);
 	private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-	
+
+	// Root CA, Sub CA, Cross-cert, Client/Server End Entity, Client/Server self-signed, etc
+	record KeyStoreManager(
+		KeyStore keyStore,				// PKCS12, PKCS11
+		Provider keyStoreProvider,		// SunJSSE, SunPKCS11
+		char[] keyStorePassword,		// PKCS12 file integrity, PKCS11 HSM slot login
+		KeyStore.PrivateKeyEntry entry,	// PKCS12 in-memory private key, PKCS11 in-HSM private key identifier
+		String entryAlias,				// PrivateKeyEntry alias
+		char[] entryPassword,			// PrivateKeyEntry password (PKCS12 entry encryption, PKCS11 null)
+		Provider entrySignatureProvider	// SunRsaSign, SunEC, SunPKCS11
+	) {}
+
+	private KeyStoreManager clientCa;	// client self-signed root CA, or null if client is self-signed 
+	private KeyStoreManager serverCa;	// server self-signed root CA, or null if server is self-signed
+	private KeyStoreManager client;		// client can be client CA-signed or self-signed
+	private KeyStoreManager server;		// server can be server CA-signed or self-signed
+
 	// Client and server SunPKCS11 configs are in /pki/src/test/resources/
-	private static final String SUNPKCS11_CLIENT_CA_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-client-ca-entity.conf");
-	private static final String SUNPKCS11_SERVER_CA_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-server-ca-entity.conf");
-	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
-	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestMutualTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
+	private static final String SUNPKCS11_CLIENT_CA_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-ca-entity.conf");
+	private static final String SUNPKCS11_SERVER_CA_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-ca-entity.conf");
+	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
+	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
 	private static final Extension[] EXTENSIONS_ROOT_CA;
 	private static final Extension[] EXTENSIONS_CLIENT;
 	private static final Extension[] EXTENSIONS_SERVER;
 	static {
-		final int    caPathLenConstraint    = 0; // 0 sub-CAs under the CA, only end-entities
+		final int    caPathLenConstraint    = 0; // No sub-CAs allowed under root CA, only end-entities allowed under root CA
 		final String clientSanEmail         = "client1@example.com";
 		final String clientSanDirectoryName = "CN=client1,OU=org unit,O=orgDC=example,DC=com";
 		final String serverSanHostname      = "localhost";
@@ -146,105 +163,86 @@ class TestMutualTls {
 		}
 	}
 
-	// Root CA, Sub CA, Cross-cert, Client/Server End Entity, Client/Server self-signed, etc
-	record Entity(
-		Provider signatureProvider, // SunRsaSign, SunEC, SunPKCS11
-		char[] password, // PKCS12 file integrity, PKCS11 HSM slot authentication
-		Provider keyStoreProvider, // SunJSSE, SunPKCS11
-		KeyStore keyStore, // PKCS12, PKCS11
-		char[] entryPassword, // PKCS12 non-null, PKCS11 null
-		String alias, // PrivateKeyEntry alias
-		KeyStore.PrivateKeyEntry entry // PKCS12 in-memory private key, PKCS11 in-HSM private key identifier
-	) {}
-
-	private Entity clientCaEntity;
-	private Entity serverCaEntity;
-	private Entity clientEndEntity;
-	private Entity serverEndEntity;
-	private HttpsServer httpsServer;
-
 	@BeforeAll static void beforeAll() {
-		Security.addProvider(new BouncyCastleProvider());	// Required if making any JCA/JCE calls to BC
+		Security.addProvider(new BouncyCastleProvider());	// Register BC provider, required if making direct or indirect JCA/JCE calls to BC
 	}
 
 	@AfterAll static void afterAll() {
-		Security.removeProvider("BC");	// Cleanup in case other tests want to add/remove BC provider
+		Security.removeProvider("BC");	// Remove BC provider, so other test classes can add and remove BC provider
 	}
 
 	@AfterEach void afterEach() throws Exception {
-		if (httpsServer != null) {
-			httpsServer.stop(0);
-		}
-		TestMutualTls.logoutSunPkcs11(this.clientCaEntity);
-		TestMutualTls.logoutSunPkcs11(this.serverCaEntity);
-		TestMutualTls.logoutSunPkcs11(this.clientEndEntity);
-		TestMutualTls.logoutSunPkcs11(this.serverEndEntity);
+		TestTls.logoutSunPkcs11(this.clientCa);
+		TestTls.logoutSunPkcs11(this.serverCa);
+		TestTls.logoutSunPkcs11(this.client);
+		TestTls.logoutSunPkcs11(this.server);
 	}
 
 	@Test void testMutualTlsSelfSignedAllP12() throws Exception {
-		this.clientCaEntity  = null;
-		this.serverCaEntity  = null;
-		this.clientEndEntity = TestMutualTls.createEntity(null,                "CN=Client",    "EC",  "Client".toCharArray(),   "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
-		this.serverEndEntity = TestMutualTls.createEntity(null,                "CN=Server",    "RSA", "Server".toCharArray(),   "Server".toCharArray(),   EXTENSIONS_SERVER, null);
+		this.clientCa = null; // no client CA => client will be self-issued and self-signed
+		this.serverCa = null; // no server CA => server will be self-issued and self-signed
+		this.client   = TestTls.createKeyStoreManager(null,          "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
+		this.server   = TestTls.createKeyStoreManager(null,          "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER, null);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsSelfSignedAllP11() throws Exception {
-		this.clientCaEntity  = null;
-		this.serverCaEntity  = null;
-		this.clientEndEntity = TestMutualTls.createEntity(null,                "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
-		this.serverEndEntity = TestMutualTls.createEntity(null,                "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		this.checkForSoftHsm2ConfEnvVariable();
+		this.clientCa = null; // no client CA => client will be self-issued and self-signed
+		this.serverCa = null; // no server CA => server will be self-issued and self-signed
+		this.client   = TestTls.createKeyStoreManager(null,          "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		this.server   = TestTls.createKeyStoreManager(null,          "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedAllP12() throws Exception {
-		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "ClientCA".toCharArray(), "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
-		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "ServerCA".toCharArray(), "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
-		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "Client".toCharArray(),   "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
-		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "Server".toCharArray(),   "Server".toCharArray(),   EXTENSIONS_SERVER, null);
+		this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
+		this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedAllP11() throws Exception {
 		this.checkForSoftHsm2ConfEnvVariable();
-		this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
-		this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
-		this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null, EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
-		this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null, EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+		this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+		this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedMixedP12AndP11() throws Exception {
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.clientCaEntity  = null;
+			this.clientCa = null;
 		} else if (SECURE_RANDOM.nextBoolean()) {
-			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.clientCaEntity  = TestMutualTls.createEntity(null,                "DC=Client CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+			this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
 		}
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.serverCaEntity  = null;
+			this.serverCa = null;
 		} else if (SECURE_RANDOM.nextBoolean()) {
-			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.serverCaEntity  = TestMutualTls.createEntity(null,                "DC=Server CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+			this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
 		}
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
+			this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.clientEndEntity = TestMutualTls.createEntity(this.clientCaEntity, "CN=Client",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+			this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
 		}
 		if (SECURE_RANDOM.nextBoolean()) {
-			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
+			this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.serverEndEntity = TestMutualTls.createEntity(this.serverCaEntity, "CN=Server",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+			this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    SECURE_RANDOM.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		}
 		this.mutualTlsHelper();
 	}
 
 	/**
-	 * Create root CA, sub CA, RA, cross-cert, CA-signed end-entity, self-signed end-entity, etc
-	 * @param issuerEntity Null if self-signed, otherwise it is a non-null issuer 
+	 * Create any entity such as root CA, sub CA, cross-cert, RA, CA-signed end-entity, self-signed end-entity, etc
+	 * @param issuerKeyStoreManager Null if self-signed, otherwise it is a non-null issuer 
 	 * @param subjectRelativeName Subject RDN, where Subject DN will be SubjectRDN,IssuerDN or SubjectRDN (self-issued)
 	 * @param subjectKeyPairAlgorithm RSA or EC 
 	 * @param subjectKeyStorePassword PKCS#12 or PKCS11 keystore password
@@ -254,14 +252,14 @@ class TestMutualTls {
 	 * @return Entity object containing links to the KeyStore, KeysStore provider, password, alias, entry password, and signature provider
 	 * @throws Exception Unexpected error
 	 */
-	private static Entity createEntity(
-		final Entity issuerEntity,					// null for Root CA self-signed
-		final String subjectRelativeName,			// "CN=Client End Entity,serial=123";
-		final String subjectKeyPairAlgorithm,		// "EC";
-		final char[] subjectKeyStorePassword,		// "Client".toCharArray();
-		final char[] subjectKeyStoreEntryPassword,	// "Client".toCharArray();
-		final Extension[] subjectExtensions,		// BasicConstraints, KeyUsage, ExtendedKeyUsage, GeneralNames, etc
-		final String subjectSunpkcs11Conf			// SUNPKCS11_CLIENT_END_ENTITY_CONF resolved file path
+	private static KeyStoreManager createKeyStoreManager(
+		final KeyStoreManager issuerKeyStoreManager,	// null for self-signed
+		final String subjectRelativeName,				// "CN=Client End Entity+serial=123";
+		final String subjectKeyPairAlgorithm,			// "EC";
+		final char[] subjectKeyStorePassword,			// "Client".toCharArray();
+		final char[] subjectKeyStoreEntryPassword,		// "Client".toCharArray();
+		final Extension[] subjectExtensions,			// BasicConstraints, KeyUsage, ExtendedKeyUsage, GeneralNames, etc
+		final String subjectSunpkcs11Conf				// SUNPKCS11_CLIENT_END_ENTITY_CONF resolved file path
 	) throws Exception {
 		final Provider subjectKeyPairGeneratorProvider;	// SunPKCS11, SunRsaSign/SunEC
 		final KeyPair  subjectKeyPair;					// RSA or EC; generated and stored in-memory or in-hardware 
@@ -270,7 +268,7 @@ class TestMutualTls {
 		final Provider subjectSignatureProvider;
 		if (subjectSunpkcs11Conf == null) {
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = subjectKeyPairAlgorithm.equals("RSA") ? Security.getProvider("SunRsaSign") : Security.getProvider("SunEC");
-			subjectKeyPair = TestMutualTls.generateKeyPair(subjectKeyPairAlgorithm, subjectKeyPairGeneratorProvider);
+			subjectKeyPair = TestTls.generateKeyPair(subjectKeyPairAlgorithm, subjectKeyPairGeneratorProvider);
 			subjectKeyStoreProvider = Security.getProvider("SunJSSE");
 			subjectKeyStore = KeyStore.getInstance("PKCS12", subjectKeyStoreProvider);
 			subjectKeyStore.load(null, null);
@@ -280,31 +278,31 @@ class TestMutualTls {
 			authProvider.login(null, loginCallbackHandler);
 			Security.addProvider(authProvider); // register AuthProvider so JCA/JCE API calls can use it for crypto operations like KeyPairGenerator
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = authProvider;
-			subjectKeyPair = TestMutualTls.generateKeyPair(subjectKeyPairAlgorithm, authProvider);
+			subjectKeyPair = TestTls.generateKeyPair(subjectKeyPairAlgorithm, authProvider);
 			subjectKeyStoreProvider = authProvider;
 			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
-			TestMutualTls.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
+			TestTls.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
 		}
 
 		final Provider issuerSignatureProvider;
-		final String issuerSignatureAlgorithm;
 		final PrivateKey issuerPrivateKey;
+		final String issuerSignatureAlgorithm;
 		final String issuerName;
 		final String subjectName;
-		if (issuerEntity == null) {
+		if (issuerKeyStoreManager == null) {
 			issuerSignatureProvider = subjectSignatureProvider;
-			issuerSignatureAlgorithm = subjectKeyPairAlgorithm.equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
 			issuerPrivateKey = subjectKeyPair.getPrivate();
+			issuerSignatureAlgorithm = subjectKeyPairAlgorithm.equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
 			subjectName = issuerName = subjectRelativeName;
 		} else {
-			issuerSignatureProvider = issuerEntity.signatureProvider;
-			issuerSignatureAlgorithm = issuerEntity.entry.getPrivateKey().getAlgorithm().equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
-			issuerPrivateKey = issuerEntity.entry.getPrivateKey();
-			issuerName = ((X509Certificate)issuerEntity.entry.getCertificate()).getSubjectX500Principal().getName(X500Principal.RFC2253);
+			issuerSignatureProvider = issuerKeyStoreManager.entrySignatureProvider;
+			issuerPrivateKey = issuerKeyStoreManager.entry.getPrivateKey();
+			issuerSignatureAlgorithm = issuerPrivateKey.getAlgorithm().equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
+			issuerName = ((X509Certificate)issuerKeyStoreManager.entry.getCertificate()).getSubjectX500Principal().getName(X500Principal.RFC2253);
 			subjectName = subjectRelativeName + "," + issuerName;
 		}
 
-		final Certificate subjectCertificate = TestMutualTls.createCert(
+		final Certificate subjectCertificate = TestTls.createCert(
 			Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
 			Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
 			new BigInteger(159, SECURE_RANDOM),
@@ -318,8 +316,8 @@ class TestMutualTls {
 		);
 		final List<Certificate> list = new ArrayList<>();
 		list.add(subjectCertificate);
-		if (issuerEntity != null) {
-			Arrays.stream(issuerEntity.entry.getCertificateChain()).forEach(c -> list.add(c));
+		if (issuerKeyStoreManager != null) {
+			Arrays.stream(issuerKeyStoreManager.entry.getCertificateChain()).forEach(c -> list.add(c));
 		}
 		final Certificate[] subjectCertificateChain = list.toArray(new X509Certificate[list.size()]);
 
@@ -332,57 +330,36 @@ class TestMutualTls {
 
 		// Save entry. If SunPKCS11, ephemeral key pair is converted to permanent PKCS11 objects, and certificate chain is added with it. 
 		subjectKeyStore.setKeyEntry(subjectName, subjectKeyPair.getPrivate(), subjectKeyStoreEntryPassword, subjectCertificateChain);
-		return new Entity(subjectSignatureProvider, subjectKeyStorePassword, subjectKeyStoreProvider, subjectKeyStore, subjectKeyStoreEntryPassword, subjectName, (KeyStore.PrivateKeyEntry) subjectKeyStore.getEntry(subjectName, new KeyStore.PasswordProtection(subjectKeyStoreEntryPassword)));
+		final KeyStore.PrivateKeyEntry entry = (KeyStore.PrivateKeyEntry) subjectKeyStore.getEntry(subjectName, new KeyStore.PasswordProtection(subjectKeyStoreEntryPassword));
+		return new KeyStoreManager(subjectKeyStore, subjectKeyStoreProvider, subjectKeyStorePassword, entry, subjectName, subjectKeyStoreEntryPassword, subjectSignatureProvider);
 	}
 
 	private void mutualTlsHelper() throws Exception {
 		final String expectedResponse = "Hello World " + SECURE_RANDOM.nextInt() + "\n";
-		final byte[] expectedResponseBytes = expectedResponse.getBytes();
 
-		if (! (this.clientEndEntity.keyStoreProvider instanceof AuthProvider authProvider)) {	// CMS Example
-			// Outer encryptions (KTRI=>RSA)
-			final X509Certificate clientCertificate = (X509Certificate) this.clientEndEntity.entry.getCertificate();
-			final RecipientInfoGenerator recipientInfoGenerator;
-			if (clientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
-				recipientInfoGenerator = new JceKeyTransRecipientInfoGenerator(clientCertificate).setProvider("SunJCE");
-			} else {
-				recipientInfoGenerator = new JceKeyAgreeRecipientInfoGenerator(CMSAlgorithm.ECDH_SHA1KDF, this.clientEndEntity.entry.getPrivateKey(), clientCertificate.getPublicKey(), CMSAlgorithm.AES256_WRAP).setProvider("BC");
-				((JceKeyAgreeRecipientInfoGenerator) recipientInfoGenerator).addRecipient(clientCertificate);
-			}
-			// Inner encryption (AES-256-CBC)
-			final OutputEncryptor cmsContentEncryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC).setProvider("SunJCE").build();
-			// Generate
-			final CMSEnvelopedDataGenerator cmsEnvelopedDataGenerator = new CMSEnvelopedDataGenerator();
-			cmsEnvelopedDataGenerator.addRecipientInfoGenerator(recipientInfoGenerator); // outer encryption(s)
-			final CMSTypedData cmsContent = new CMSProcessableByteArray(expectedResponseBytes);
-			final CMSEnvelopedData cmsEnvelopedData = cmsEnvelopedDataGenerator.generate(cmsContent, cmsContentEncryptor); // inner encryption
-			final byte[] cmsEnvelopedDataBytes = cmsEnvelopedData.getEncoded();
-			// Print
-			printPem("Payload", "CMS", cmsEnvelopedDataBytes);
-
-			// RSA outer encryptions
-			final RecipientId recipientId;
-			final Recipient recipient;
-			if (clientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
-				recipientId = new JceKeyTransRecipientId(clientCertificate);
-				recipient = new JceKeyTransEnvelopedRecipient(this.clientEndEntity.entry.getPrivateKey()).setProvider((this.clientEndEntity.keyStoreProvider instanceof AuthProvider authProvider) ? serverEndEntity.keyStoreProvider : Security.getProvider("SunJCE"));
-			} else {
-				recipientId = new JceKeyAgreeRecipientId(clientCertificate);
-				recipient = new JceKeyAgreeEnvelopedRecipient(this.clientEndEntity.entry.getPrivateKey()).setProvider((this.clientEndEntity.keyStoreProvider instanceof AuthProvider authProvider) ? serverEndEntity.keyStoreProvider : Security.getProvider("BC"));
-			}
-			final RecipientInformationStore recipientInformationStore = cmsEnvelopedData.getRecipientInfos();
-			final RecipientInformation recipientInformation = recipientInformationStore.get(recipientId);
-			assertNotNull(recipientInformation);
-			final byte[] decryptedData = recipientInformation.getContent(recipient);
-			assertThat(decryptedData, is(equalTo(expectedResponseBytes)));
+		// SoftHSM2 is missing support for some CMS algorithms 
+		if (! (this.client.keyStoreProvider instanceof AuthProvider authProvider)) {	// CMS Example
+			final byte[] expectedResponseBytes = expectedResponse.getBytes();
+			final byte[] encryptedDataBytes = TestTls.encryptCMSEnvelopedData(
+				expectedResponseBytes,
+				(X509Certificate) this.server.entry.getCertificate(),	// recpientCertificate
+				(X509Certificate) this.client.entry.getCertificate(),	// senderCertificate (ECDH only, not RSA)
+				 this.client.entry.getPrivateKey()						// senderPrivateKey  (ECDH only, not RSA)
+			);
+			final byte[] decryptedDataBytes = TestTls.decryptCmsEnvelopedData(
+				encryptedDataBytes,
+				(X509Certificate) this.server.entry.getCertificate(),
+				this.server.entry.getPrivateKey(),
+//				(this.server.keyStoreProvider instanceof AuthProvider authProvider) ? server.keyStoreProvider : Security.getProvider("SunJCE") // TODO Sun only?
+				(this.server.keyStoreProvider instanceof AuthProvider authProvider) ? server.keyStoreProvider : Security.getProvider("BC")
+			);
+			assertThat(decryptedDataBytes, is(equalTo(expectedResponseBytes)));
 		}
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-		final Certificate[] clientCertificateChain = this.clientEndEntity.entry.getCertificateChain();
-		final X509Certificate lastCertificateClientCertificateChain = (X509Certificate) clientCertificateChain[clientCertificateChain.length-1];
-		final SSLContext serverSslContext = createServerSslContext(this.serverEndEntity, lastCertificateClientCertificateChain);
-		this.httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 443), 0);
-		this.httpsServer.setHttpsConfigurator(new HttpsConfigurator(serverSslContext) {
+		final SSLContext serverSslContext = this.createServerSslContext();
+		final HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 443), 0);
+		httpsServer.setHttpsConfigurator(new HttpsConfigurator(serverSslContext) {
 			@Override public void configure(final HttpsParameters httpsParameters) {
 				final SSLEngine engine = serverSslContext.createSSLEngine();
 				httpsParameters.setNeedClientAuth(true);
@@ -391,7 +368,7 @@ class TestMutualTls {
 				httpsParameters.setSSLParameters(serverSslContext.getSupportedSSLParameters());
 			}
 		});
-		this.httpsServer.createContext("/test", new HttpHandler() {
+		httpsServer.createContext("/test", new HttpHandler() {
 			@Override public void handle(final HttpExchange httpExchange) throws IOException {
 				try (final OutputStream os = httpExchange.getResponseBody()) {
 					httpExchange.sendResponseHeaders(200, expectedResponse.length());
@@ -399,35 +376,88 @@ class TestMutualTls {
 				}
 			}
 		});
-		this.httpsServer.setExecutor(null); // creates a default executor
-		this.httpsServer.start();
+		httpsServer.setExecutor(null); // creates a default executor
+		httpsServer.start();
+		try {
+			// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
+			final SSLContext clientSslContext = this.createClientSslContext();
+			final HttpClient httpClient = HttpClient.newBuilder().sslContext(clientSslContext).connectTimeout(Duration.ofSeconds(2)).build();
 
-		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-		final Certificate[] serverCertificateChain = this.serverEndEntity.entry.getCertificateChain();
-		final X509Certificate lastCertificateServerCertificateChain = (X509Certificate) serverCertificateChain[serverCertificateChain.length-1];
-		final SSLContext clientSslContext = createClientSslContext(this.clientEndEntity, lastCertificateServerCertificateChain);
-		final HttpClient httpClient = HttpClient.newBuilder().sslContext(clientSslContext).connectTimeout(Duration.ofSeconds(2)).build();
+			// Use HTTPS client to send a GET request to the HTTPS server, to verify if TLS handshake succeeds
+			final HttpRequest request = HttpRequest.newBuilder().uri(new URI("https://localhost:443/test")).GET().timeout(Duration.ofSeconds(4)).build();
+			final HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+			final HttpHeaders responseHeaders = response.headers();
+			LOGGER.info("Server response headers: " + responseHeaders);
+			LOGGER.info("Server response body: " + response.body());
+			assertThat(response.body(), equalTo(expectedResponse));
+		} finally {
+			httpsServer.stop(0);
+		}
+	}
 
-		// Use HTTPS client to send a GET request to the HTTPS server, to verify if TLS handshake succeeds
-		final HttpRequest request = HttpRequest.newBuilder().uri(new URI("https://localhost:443/test")).GET().timeout(Duration.ofSeconds(4)).build();
-		final HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-		final HttpHeaders responseHeaders = response.headers();
-		LOGGER.info("Server response headers: " + responseHeaders);
-		LOGGER.info("Server response body: " + response.body());
-		assertThat(response.body(), equalTo(expectedResponse));
+	private static byte[] encryptCMSEnvelopedData(
+		final byte[] clearBytes,
+		final X509Certificate recipientCertificate,
+		final X509Certificate senderCertificate,
+		final PrivateKey senderPrivateKey
+	) throws Exception {
+		// Inner encryption (AES-256-CBC)
+		final OutputEncryptor cmsContentEncryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC).setProvider("SunJCE").build();
+		// Outer encryption or encryptions (KTRI for RSA, KARI for EC)
+		final RecipientInfoGenerator recipientInfoGenerator;
+		if (recipientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
+			recipientInfoGenerator = new JceKeyTransRecipientInfoGenerator(recipientCertificate).setProvider("SunJCE");
+		} else {
+			// TODO Fix for RSA sender EC recipient
+			recipientInfoGenerator = new JceKeyAgreeRecipientInfoGenerator(CMSAlgorithm.ECDH_SHA1KDF, senderPrivateKey, senderCertificate.getPublicKey(), CMSAlgorithm.AES256_WRAP).setProvider("BC");
+			((JceKeyAgreeRecipientInfoGenerator) recipientInfoGenerator).addRecipient(recipientCertificate);
+		}
+		// Generate
+		final CMSEnvelopedDataGenerator cmsEnvelopedDataGenerator = new CMSEnvelopedDataGenerator();
+		cmsEnvelopedDataGenerator.addRecipientInfoGenerator(recipientInfoGenerator); // outer encryption(s)
+		final CMSTypedData cmsContent = new CMSProcessableByteArray(clearBytes);
+		final CMSEnvelopedData cmsEnvelopedData = cmsEnvelopedDataGenerator.generate(cmsContent, cmsContentEncryptor); // inner encryption
+		final byte[] cmsEnvelopedDataBytes = cmsEnvelopedData.getEncoded();
+		// Print
+		printPem("Payload", "CMS", cmsEnvelopedDataBytes);
+		return cmsEnvelopedDataBytes;
+	}
+
+	private static byte[] decryptCmsEnvelopedData(
+		final byte[] cmsEnvelopedDataBytes,
+		final X509Certificate recipientCertificate,
+		final PrivateKey recipientPrivateKey,
+		final Provider recipientKeyStoreProvider
+	) throws Exception {
+		// Outer decryption
+		final RecipientId recipientId;
+		final Recipient recipient;
+		if (recipientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
+			recipientId = new JceKeyTransRecipientId(recipientCertificate);
+			recipient = new JceKeyTransEnvelopedRecipient(recipientPrivateKey).setProvider(recipientKeyStoreProvider);
+		} else {
+			recipientId = new JceKeyAgreeRecipientId(recipientCertificate);
+			recipient = new JceKeyAgreeEnvelopedRecipient(recipientPrivateKey).setProvider(recipientKeyStoreProvider);
+		}
+		// Decrypt outer KEK to get inner DEK, and use inner DEK to decrypt the data
+		final CMSEnvelopedData cmsEnvelopedData = new CMSEnvelopedData(cmsEnvelopedDataBytes);
+		final RecipientInformationStore recipientInformationStore = cmsEnvelopedData.getRecipientInfos();
+		final RecipientInformation recipientInformation = recipientInformationStore.get(recipientId); // Null if expected RecipientId not found
+		assertNotNull(recipientInformation);
+		final byte[] decryptedData = recipientInformation.getContent(recipient);
+		return decryptedData;
 	}
 
 	// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
-	private SSLContext createClientSslContext(
-		final Entity client,
-		final X509Certificate serverCaCert
-	) throws Exception {
+	private SSLContext createClientSslContext() throws Exception {
+		final Certificate[] serverCertificateChain = this.server.entry.getCertificateChain();
+		final X509Certificate lastCertificateServerCertificateChain = (X509Certificate) serverCertificateChain[serverCertificateChain.length-1];
 		final KeyStore clientTrustStore = KeyStore.getInstance("PKCS12", "SunJSSE");
 		clientTrustStore.load(null, null);
-		clientTrustStore.setCertificateEntry("servercacert", serverCaCert); // trust the server CA cert
+		clientTrustStore.setCertificateEntry("servercacert", lastCertificateServerCertificateChain); // trust the server CA cert
 
 		final KeyManagerFactory clientKeyManagerFactory = KeyManagerFactory.getInstance("PKIX", "SunJSSE");
-		clientKeyManagerFactory.init(client.keyStore, client.entryPassword);
+		clientKeyManagerFactory.init(this.client.keyStore, this.client.entryPassword);
 		final KeyManager[] clientKeyManagers = clientKeyManagerFactory.getKeyManagers();
 
 		final TrustManagerFactory clientTrustManagerFactory = TrustManagerFactory.getInstance("PKIX", "SunJSSE");
@@ -439,16 +469,15 @@ class TestMutualTls {
 		return clientSslContext;
 	}
 
-	private SSLContext createServerSslContext(
-		final Entity server,
-		final X509Certificate clientCaCert
-	) throws Exception {
+	private SSLContext createServerSslContext() throws Exception {
+		final Certificate[] clientCertificateChain = this.client.entry.getCertificateChain();
+		final X509Certificate lastCertificateClientCertificateChain = (X509Certificate) clientCertificateChain[clientCertificateChain.length-1];
 		final KeyStore serverTrustStore = KeyStore.getInstance("PKCS12", "SunJSSE");
 		serverTrustStore.load(null, null);
-		serverTrustStore.setCertificateEntry("clientcacert", clientCaCert);
+		serverTrustStore.setCertificateEntry("clientcacert", lastCertificateClientCertificateChain);
 
 		final KeyManagerFactory serverKeyManagerFactory = KeyManagerFactory.getInstance("PKIX", "SunJSSE");
-		serverKeyManagerFactory.init(server.keyStore, server.entryPassword);
+		serverKeyManagerFactory.init(this.server.keyStore, this.server.entryPassword);
 		final KeyManager[] serverKeyManagers = serverKeyManagerFactory.getKeyManagers();
 
 		final TrustManagerFactory serverTrustManagerFactory = TrustManagerFactory.getInstance("PKIX", "SunJSSE");
@@ -512,13 +541,13 @@ class TestMutualTls {
 
 	private static String resourceToFilePath(final String resource) throws IllegalArgumentException {
 		try {
-			return new File(TestMutualTls.class.getResource(resource).toURI()).getAbsolutePath();
+			return new File(TestTls.class.getResource(resource).toURI()).getAbsolutePath();
 		} catch (URISyntaxException e) {
 			throw new IllegalArgumentException("");
 		}
 	}
 
-	private static void logoutSunPkcs11(final Entity entity) {
+	private static void logoutSunPkcs11(final KeyStoreManager entity) {
 		if ((entity != null) && (entity.keyStoreProvider instanceof AuthProvider authProvider)) {
 			try {
 				LOGGER.info("Logout " + entity.keyStoreProvider.getName());
