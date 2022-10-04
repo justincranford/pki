@@ -23,7 +23,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.AuthProvider;
 import java.security.KeyPair;
-import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.Provider;
@@ -33,7 +32,6 @@ import java.security.Security;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
-import java.security.spec.ECGenParameterSpec;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -57,6 +55,7 @@ import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.LoginException;
 import javax.security.auth.x500.X500Principal;
 
+import com.github.justincranford.common.KeyGenUtil;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
@@ -71,7 +70,6 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.cms.CMSAlgorithm;
 import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
-import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSProcessableByteArray;
 import org.bouncycastle.cms.CMSTypedData;
 import org.bouncycastle.cms.Recipient;
@@ -81,11 +79,9 @@ import org.bouncycastle.cms.RecipientInformation;
 import org.bouncycastle.cms.RecipientInformationStore;
 import org.bouncycastle.cms.jcajce.JceCMSContentEncryptorBuilder;
 import org.bouncycastle.cms.jcajce.JceKeyAgreeEnvelopedRecipient;
-import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipient;
 import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipientId;
 import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipientInfoGenerator;
 import org.bouncycastle.cms.jcajce.JceKeyTransEnvelopedRecipient;
-import org.bouncycastle.cms.jcajce.JceKeyTransRecipient;
 import org.bouncycastle.cms.jcajce.JceKeyTransRecipientId;
 import org.bouncycastle.cms.jcajce.JceKeyTransRecipientInfoGenerator;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -268,7 +264,7 @@ class TestTls {
 		final Provider subjectSignatureProvider;
 		if (subjectSunpkcs11Conf == null) {
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = subjectKeyPairAlgorithm.equals("RSA") ? Security.getProvider("SunRsaSign") : Security.getProvider("SunEC");
-			subjectKeyPair = TestTls.generateKeyPair(subjectKeyPairAlgorithm, subjectKeyPairGeneratorProvider);
+			subjectKeyPair = KeyGenUtil.generateKeyPair(subjectKeyPairAlgorithm, subjectKeyPairGeneratorProvider);
 			subjectKeyStoreProvider = Security.getProvider("SunJSSE");
 			subjectKeyStore = KeyStore.getInstance("PKCS12", subjectKeyStoreProvider);
 			subjectKeyStore.load(null, null);
@@ -278,7 +274,7 @@ class TestTls {
 			authProvider.login(null, loginCallbackHandler);
 			Security.addProvider(authProvider); // register AuthProvider so JCA/JCE API calls can use it for crypto operations like KeyPairGenerator
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = authProvider;
-			subjectKeyPair = TestTls.generateKeyPair(subjectKeyPairAlgorithm, authProvider);
+			subjectKeyPair = KeyGenUtil.generateKeyPair(subjectKeyPairAlgorithm, authProvider);
 			subjectKeyStoreProvider = authProvider;
 			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
 			TestTls.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
@@ -580,16 +576,6 @@ class TestTls {
 			keyStoreBytes = baos.toByteArray();
 		}
 		return keyStoreBytes;
-	}
-
-	private static KeyPair generateKeyPair(final String algorithm, final Provider provider) throws Exception {
-		final KeyPairGenerator subjectKeyPairGenerator = KeyPairGenerator.getInstance(algorithm, provider);
-		if (algorithm.equals("RSA")) {
-			subjectKeyPairGenerator.initialize(2048); // NIST RSA-3072
-		} else {
-			subjectKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST EC P-521
-		}
-		return subjectKeyPairGenerator.generateKeyPair();
 	}
 
 	private void checkForSoftHsm2ConfEnvVariable() {
