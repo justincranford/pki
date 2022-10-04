@@ -3,6 +3,9 @@
 .project
 .classpath
 
+# IntelliJ generated files
+.idea/
+
 # Compiled class file
 *.class
 
