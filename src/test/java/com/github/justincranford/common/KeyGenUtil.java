@@ -1,9 +1,13 @@
 package com.github.justincranford.common;
 
-import java.security.*;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.Provider;
+import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
 
 public class KeyGenUtil {
+
     public static KeyPair generateKeyPair(final String algorithm, final Provider provider) throws Exception {
         final KeyPairGenerator subjectKeyPairGenerator;
         if (provider == null) {
@@ -24,7 +28,7 @@ public class KeyGenUtil {
         return subjectKeyPairGenerator.generateKeyPair();
     }
 
-    public static byte[] getRandomBytes(final String algorithm, final Provider provider) throws NoSuchAlgorithmException {
+    public static byte[] getRandomBytes(final String algorithm, final Provider provider) throws Exception {
         final SecureRandom secureRandom = SecureRandom.getInstance(algorithm, provider);
         final byte[] randomBytes = new byte[32];
         secureRandom.nextBytes(randomBytes);

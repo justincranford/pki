@@ -3,10 +3,7 @@ package com.github.justincranford.pki;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.nullValue;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assume.assumeThat;
+import static org.junit.Assume.assumeNotNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -37,7 +34,6 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -55,7 +51,9 @@ import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.LoginException;
 import javax.security.auth.x500.X500Principal;
 
+import com.github.justincranford.common.CmsUtil;
 import com.github.justincranford.common.KeyGenUtil;
+import com.github.justincranford.common.PemUtil;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
@@ -67,26 +65,8 @@ import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.cms.CMSAlgorithm;
-import org.bouncycastle.cms.CMSEnvelopedData;
-import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
-import org.bouncycastle.cms.CMSProcessableByteArray;
-import org.bouncycastle.cms.CMSTypedData;
-import org.bouncycastle.cms.Recipient;
-import org.bouncycastle.cms.RecipientId;
-import org.bouncycastle.cms.RecipientInfoGenerator;
-import org.bouncycastle.cms.RecipientInformation;
-import org.bouncycastle.cms.RecipientInformationStore;
-import org.bouncycastle.cms.jcajce.JceCMSContentEncryptorBuilder;
-import org.bouncycastle.cms.jcajce.JceKeyAgreeEnvelopedRecipient;
-import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipientId;
-import org.bouncycastle.cms.jcajce.JceKeyAgreeRecipientInfoGenerator;
-import org.bouncycastle.cms.jcajce.JceKeyTransEnvelopedRecipient;
-import org.bouncycastle.cms.jcajce.JceKeyTransRecipientId;
-import org.bouncycastle.cms.jcajce.JceKeyTransRecipientInfoGenerator;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -313,16 +293,16 @@ class TestTls {
 		final List<Certificate> list = new ArrayList<>();
 		list.add(subjectCertificate);
 		if (issuerKeyStoreManager != null) {
-			Arrays.stream(issuerKeyStoreManager.entry.getCertificateChain()).forEach(c -> list.add(c));
+			list.addAll(Arrays.asList(issuerKeyStoreManager.entry.getCertificateChain()));
 		}
-		final Certificate[] subjectCertificateChain = list.toArray(new X509Certificate[list.size()]);
+		final Certificate[] subjectCertificateChain = list.toArray(new Certificate[0]);
 
 		// Print certificate chain
 		final List<byte[]> certificateBytes = new ArrayList<>(subjectCertificateChain.length);
 		Arrays.stream(subjectCertificateChain).forEach(c -> {
 			try { certificateBytes.add(c.getEncoded()); } catch (CertificateEncodingException e) { /* do nothing */ }
 		});
-		printPem("Cert chain", "CERTIFICATE", certificateBytes.toArray(new byte[0][]));
+		PemUtil.printPem("Cert chain", "CERTIFICATE", certificateBytes.toArray(new byte[0][]));
 
 		// Save entry. If SunPKCS11, ephemeral key pair is converted to permanent PKCS11 objects, and certificate chain is added with it. 
 		subjectKeyStore.setKeyEntry(subjectName, subjectKeyPair.getPrivate(), subjectKeyStoreEntryPassword, subjectCertificateChain);
@@ -336,13 +316,13 @@ class TestTls {
 		// SoftHSM2 is missing support for some CMS algorithms 
 		if (! (this.client.keyStoreProvider instanceof AuthProvider authProvider)) {	// CMS Example
 			final byte[] expectedResponseBytes = expectedResponse.getBytes();
-			final byte[] encryptedDataBytes = TestTls.encryptCMSEnvelopedData(
+			final byte[] encryptedDataBytes = CmsUtil.encryptCMSEnvelopedData(
 				expectedResponseBytes,
 				(X509Certificate) this.server.entry.getCertificate(),	// recpientCertificate
 				(X509Certificate) this.client.entry.getCertificate(),	// senderCertificate (ECDH only, not RSA)
 				 this.client.entry.getPrivateKey()						// senderPrivateKey  (ECDH only, not RSA)
 			);
-			final byte[] decryptedDataBytes = TestTls.decryptCmsEnvelopedData(
+			final byte[] decryptedDataBytes = CmsUtil.decryptCmsEnvelopedData(
 				encryptedDataBytes,
 				(X509Certificate) this.server.entry.getCertificate(),
 				this.server.entry.getPrivateKey(),
@@ -354,7 +334,7 @@ class TestTls {
 
 		// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
 		final SSLContext serverSslContext = this.createServerSslContext();
-		final HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 443), 0);
+		final HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress("localhost", 8443), 0);
 		httpsServer.setHttpsConfigurator(new HttpsConfigurator(serverSslContext) {
 			@Override public void configure(final HttpsParameters httpsParameters) {
 				final SSLEngine engine = serverSslContext.createSSLEngine();
@@ -380,7 +360,7 @@ class TestTls {
 			final HttpClient httpClient = HttpClient.newBuilder().sslContext(clientSslContext).connectTimeout(Duration.ofSeconds(2)).build();
 
 			// Use HTTPS client to send a GET request to the HTTPS server, to verify if TLS handshake succeeds
-			final HttpRequest request = HttpRequest.newBuilder().uri(new URI("https://localhost:443/test")).GET().timeout(Duration.ofSeconds(4)).build();
+			final HttpRequest request = HttpRequest.newBuilder().uri(new URI("https://localhost:8443/test")).GET().timeout(Duration.ofSeconds(4)).build();
 			final HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 			final HttpHeaders responseHeaders = response.headers();
 			LOGGER.info("Server response headers: " + responseHeaders);
@@ -389,59 +369,6 @@ class TestTls {
 		} finally {
 			httpsServer.stop(0);
 		}
-	}
-
-	private static byte[] encryptCMSEnvelopedData(
-		final byte[] clearBytes,
-		final X509Certificate recipientCertificate,
-		final X509Certificate senderCertificate,
-		final PrivateKey senderPrivateKey
-	) throws Exception {
-		// Inner encryption (AES-256-CBC)
-		final OutputEncryptor cmsContentEncryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC).setProvider("SunJCE").build();
-		// Outer encryption or encryptions (KTRI for RSA, KARI for EC)
-		final RecipientInfoGenerator recipientInfoGenerator;
-		if (recipientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
-			recipientInfoGenerator = new JceKeyTransRecipientInfoGenerator(recipientCertificate).setProvider("SunJCE");
-		} else {
-			// TODO Fix for RSA sender EC recipient
-			recipientInfoGenerator = new JceKeyAgreeRecipientInfoGenerator(CMSAlgorithm.ECDH_SHA1KDF, senderPrivateKey, senderCertificate.getPublicKey(), CMSAlgorithm.AES256_WRAP).setProvider("BC");
-			((JceKeyAgreeRecipientInfoGenerator) recipientInfoGenerator).addRecipient(recipientCertificate);
-		}
-		// Generate
-		final CMSEnvelopedDataGenerator cmsEnvelopedDataGenerator = new CMSEnvelopedDataGenerator();
-		cmsEnvelopedDataGenerator.addRecipientInfoGenerator(recipientInfoGenerator); // outer encryption(s)
-		final CMSTypedData cmsContent = new CMSProcessableByteArray(clearBytes);
-		final CMSEnvelopedData cmsEnvelopedData = cmsEnvelopedDataGenerator.generate(cmsContent, cmsContentEncryptor); // inner encryption
-		final byte[] cmsEnvelopedDataBytes = cmsEnvelopedData.getEncoded();
-		// Print
-		printPem("Payload", "CMS", cmsEnvelopedDataBytes);
-		return cmsEnvelopedDataBytes;
-	}
-
-	private static byte[] decryptCmsEnvelopedData(
-		final byte[] cmsEnvelopedDataBytes,
-		final X509Certificate recipientCertificate,
-		final PrivateKey recipientPrivateKey,
-		final Provider recipientKeyStoreProvider
-	) throws Exception {
-		// Outer decryption
-		final RecipientId recipientId;
-		final Recipient recipient;
-		if (recipientCertificate.getPublicKey().getAlgorithm().equals("RSA")) {
-			recipientId = new JceKeyTransRecipientId(recipientCertificate);
-			recipient = new JceKeyTransEnvelopedRecipient(recipientPrivateKey).setProvider(recipientKeyStoreProvider);
-		} else {
-			recipientId = new JceKeyAgreeRecipientId(recipientCertificate);
-			recipient = new JceKeyAgreeEnvelopedRecipient(recipientPrivateKey).setProvider(recipientKeyStoreProvider);
-		}
-		// Decrypt outer KEK to get inner DEK, and use inner DEK to decrypt the data
-		final CMSEnvelopedData cmsEnvelopedData = new CMSEnvelopedData(cmsEnvelopedDataBytes);
-		final RecipientInformationStore recipientInformationStore = cmsEnvelopedData.getRecipientInfos();
-		final RecipientInformation recipientInformation = recipientInformationStore.get(recipientId); // Null if expected RecipientId not found
-		assertNotNull(recipientInformation);
-		final byte[] decryptedData = recipientInformation.getContent(recipient);
-		return decryptedData;
 	}
 
 	// SSLContext = KeyManager(KeyStore) + TrustManager(TrustStore)
@@ -514,13 +441,6 @@ class TestTls {
 		
 	}
 
-	private static void printPem(final String msg, final String pemType, final byte[]... payloads) throws Exception {
-		LOGGER.info(msg);
-		for (final byte[] payload : payloads) {
-			System.out.println("-----BEGIN "+pemType+"-----\n" + Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(payload) + "\n-----END "+pemType+"-----");
-		}
-	}
-
 	private static class ProviderCallbackHandler implements CallbackHandler {
 		final char[] keyStorePassword;
 		private ProviderCallbackHandler(final char[] keyStorePassword) {
@@ -579,6 +499,6 @@ class TestTls {
 	}
 
 	private void checkForSoftHsm2ConfEnvVariable() {
-		assumeThat("Environment variable SOFTHSM2_CONF required for SunPKCS11 test", System.getenv("SOFTHSM2_CONF"), is(not(nullValue())));
+		assumeNotNull("Environment variable SOFTHSM2_CONF required for SunPKCS11 test", System.getenv("SOFTHSM2_CONF"));
 	}
 }
