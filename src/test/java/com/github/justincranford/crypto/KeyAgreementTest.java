@@ -24,13 +24,26 @@ public class KeyAgreementTest {
     private static final Logger LOGGER = LoggerFactory.getLogger(KeyAgreementTest.class);
 
     /**
-     * Aspects of a secure connection across an untrusted medium (TCP/IP, email, etc):
-     *  1. Key Agreement: Ephemeral key pair derives secret used to KDF salts from both sides (PKC)
-     *  2. Authentication: Three options are individual trust (SSH), web of trust (PGP), or central trust (PKI)
-     *  3. Confidentiality: Fast symmetric cipher such as AES-256-CBC or AES-256-GCM
-     *  4. Integrity: Fast symmetric MAC such as HmacSHA256 or Pbkdf2WithHmacSha256
+     * Aspects of a secure connection across an untrusted transport (TCP/IP, UDP/IP, email, etc):
+     *  1. Key Agreement: Ephemeral key pairs derive secret. This is a HMAC key, salts from both sides are IKM, output is session key.
+     *  2. Confidentiality: Half of session key is used as an AES key in AES-256-CBC (or AES-256-GCM).
+     *  3. Integrity: Half of session key is used as an HMAC key in HmacSHA256 (or Pbkdf2WithHmacSha256).
+     *  4. Authentication: Not shown. See below.
      *
-     *  This example only shows how the key agreement aspect might look. Aspects 2-4 are not covered here.
+     *  Authentication is not in scope for this example. Three trust models are:
+     *  1. Single trust (ex: SSH, individual public keys are shared and trusted)
+     *  2. Group trust (ex: PGP, friends public keys are shared and trusted)
+     *  3. Central trust (ex: PKI, institution public keys are shared and trusted
+     *
+     *  Choices of when to do authentication:
+     *  1. OSI L5 session-layer and L6 presentation-layer (ex: TLS)
+     *  2. OSI L7 application-layer (ex: HTTP)
+     *
+     *  HTTPS specific examples:
+     *  1. HTTP client authentication + TLS  server authentication (most common use case)
+     *  2. TLS  client authentication + TLS  server authentication (aka TLS mutual authentication)
+     *  3. TLS  client authentication + HTTP server authentication (atypical, but still valid)
+     *  4. HTTP client authentication + HTTP server authentication (atypical, but still valid)
      *
      * @throws Exception Error if something goes wrong
      */
