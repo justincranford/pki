@@ -24,26 +24,25 @@ public class KeyAgreementTest {
     private static final Logger LOGGER = LoggerFactory.getLogger(KeyAgreementTest.class);
 
     /**
-     * Aspects of a secure connection across an untrusted transport (TCP/IP, UDP/IP, email, etc):
-     *  1. Key Agreement: Ephemeral key pairs derive secret. This is a HMAC key, IKM is salts from both sides, output is session key.
-     *  2. Confidentiality: Half of session key is copied and used as an AES key in AES-256-CBC (or AES-256-GCM).
-     *  3. Integrity: Half of session key is copied and used as an HMAC key in HmacSHA256 (or Pbkdf2WithHmacSha256).
-     *  4. Authentication: Not shown. See below.
+     * Security components:
+     *  1. Key Agreement: Ephemeral key pairs derive secret (ex: EC-P521 => 521-bit). Used as HMAC key with IKM=salts to derive a session key.
+     *  2. Confidentiality: First chunk of session key is used as AES key (ex: AES-256-CBC, AES-256-GCM).
+     *  3. Integrity: Second chunk of session key is used as HMAC key (ex: HmacSHA256).
+     *  4. Authentication: Not required.
      *
-     * Authentication is not in scope for this example. Three trust models are:
-     *  1. Single trust (ex: SSH), individual public keys are shared and trusted
-     *  2. Group trust (ex: PGP), friends public keys are shared and trusted (aka friends of friends)
-     *  3. Central trust (ex: PKI), institutional public keys are shared and trusted (aka CA certs)
+     * Types of authentication:
+     *  1. Central trust (ex: PKI), central public keys are trusted (aka public CA certificates)
+     *  2. Group trust (ex: PGP), trusted public key is a seed seeds to trust other public keys (aka 2nd level connections)
+     *  3. Single trust (ex: SSH), individual public keys are trusted (aka 1st level connections)
      *
-     * HTTPS (aka HTTP/TLS) examples of mixed authentication at OSI L5/L6 versus OSI L7:
+     * Authentication examples from HTTPS (HTTP/TLS):
      *  1. HTTP client authentication + TLS  server authentication (most common use case)
-     *  2. TLS  client authentication + TLS  server authentication (aka TLS mutual authentication)
-     *  3. TLS  client authentication + HTTP server authentication (atypical, but still valid)
-     *  4. HTTP client authentication + HTTP server authentication (atypical, but still valid)
+     *  2. TLS  client authentication + TLS  server authentication (aka TLS mutual authentication, less common)
+     *  3. TLS  client authentication + HTTP server authentication (atypical, not common but still valid)
+     *  4. HTTP client authentication + HTTP server authentication (atypical, not common but still valid)
      *
-     * Note: An example of plausible 3 & 4 are RESTful HTTPS requests/responses containing CMS AuthenticatedData,
-     * or possibly CMS EnvelopedData wrapped in CMS SignedData. In other words, authenticity is done at OSI L7,
-     * instead of OSI L5/L6 of TLS.
+     * Note 3-4: HTTP requests/responses could be CMS AuthenticatedData, or CMS EnvelopedData wrapped in CMS SignedData.
+     * If so, authentication can be done at OSI L7 (application layer), instead of OSI L5/L6 (session and presentation).
      *
      * @throws Exception Error if something goes wrong
      */
