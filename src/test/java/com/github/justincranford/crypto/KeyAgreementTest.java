@@ -25,24 +25,15 @@ public class KeyAgreementTest {
 
     /**
      * Security components:
-     *  1. Key Agreement: Ephemeral key pairs derive secret (ex: EC-P521 => 521-bit). Used as HMAC key with IKM=salts to derive a session key.
+     *  1. Session Key: KDF(PreKey,ClientIKM & ServerIKM), PreKey can be obtained via KA, PSK, or Client-generated.
      *  2. Confidentiality: First chunk of session key is used as AES key (ex: AES-256-CBC, AES-256-GCM).
      *  3. Integrity: Second chunk of session key is used as HMAC key (ex: HmacSHA256).
-     *  4. Authentication: Not required.
+     *  4. Authentication: Not required in TLS 1.2.
      *
      * Types of authentication:
      *  1. Central trust (ex: PKI), central public keys are trusted (aka public CA certificates)
      *  2. Group trust (ex: PGP), trusted public key is a seed seeds to trust other public keys (aka 2nd level connections)
      *  3. Single trust (ex: SSH), individual public keys are trusted (aka 1st level connections)
-     *
-     * Authentication examples from HTTPS (HTTP/TLS):
-     *  1. HTTP client authentication + TLS  server authentication (most common use case)
-     *  2. TLS  client authentication + TLS  server authentication (aka TLS mutual authentication, less common)
-     *  3. TLS  client authentication + HTTP server authentication (atypical, not common but still valid)
-     *  4. HTTP client authentication + HTTP server authentication (atypical, not common but still valid)
-     *
-     * Note 3-4: HTTP requests/responses could be CMS AuthenticatedData, or CMS EnvelopedData wrapped in CMS SignedData.
-     * If so, authentication can be done at OSI L7 (application layer), instead of OSI L5/L6 (session and presentation).
      *
      * @throws Exception Error if something goes wrong
      */
