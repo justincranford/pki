@@ -35,15 +35,15 @@ public class RollYourOwnTlsTest {
     record SessionKeys(SecretKey aes, SecretKey hmac) {};
     record ProtectedMessage(byte[] ciphertext, byte[] iv, byte[] signature) {};
 
-    @Test void testKeyAgreement() throws Exception {
-        testHelper(sessionKdfKeyEcdh()); // Key agreement
+    @Test void testEc() throws Exception {
+        testHelper(sessionKdfKeyEcdh()); // EC Key agreement
     }
 
-    @Test void testPreSharedKey() throws Exception {
+    @Test void testHmac() throws Exception {
         testHelper(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated
     }
 
-    @Test void testClientGeneratedKey() throws Exception {
+    @Test void testRsa() throws Exception {
         testHelper(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key
     }
 
