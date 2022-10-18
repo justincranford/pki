@@ -5,12 +5,19 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.crypto.*;
+import javax.crypto.Cipher;
+import javax.crypto.KeyAgreement;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.util.*;
+import java.security.KeyPair;
+import java.security.Provider;
+import java.security.SecureRandom;
+import java.security.Security;
+import java.util.Arrays;
+import java.util.HexFormat;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -18,33 +25,36 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
 /**
- * Roll your own protected TLS-like protocol.
+ * TLS Key Exchange:
+ *  Summary: ECDH => Pre-master Key -> Master Key (48-byte) -> Keys and IVs
  *
- *  1. SESSION KDF KEY (OPTIONS: ECDH, ADMIN PSK, CLIENT GENERATED)
- *  2. SESSION KDF IKM
- *  3. SESSION AES+HMAC KEYS
+ * Roll your own TLS-like protocol.
+ *  1. SESSION KDF KEY (ECDH, ADMIN PSK, RSA ENCRYPTED CLIENT KEY) => Analogous to TLS pre-master secret
+ *  2. SESSION KDF IKM => Analogous to TLS label+seed
+ *  3. SESSION KDF (ex: HKDF, not PBKDF2) => Analogous to TLS master secret
+ *  3. SESSION (AES/CBC+HMAC or AES-GCM) => Analogous to TLS 2xAES and 2xHMAC session keys
  *  4. ENCRYPT
- *  5. SIGN
- *  6. SEND
+ *  5. SIGN => Analogous to TLS, but TLS does MAC first ENCRYPT second
+ *  6. SEND => Any network/transport protocol (TCP/IP, UDP/IP, SMTP, USB drive, Courier, etc)
  *  7. VERIFY
  *  8. DECRYPT
  */
 public class RollYourOwnTlsTest {
     private static final Logger LOGGER = LoggerFactory.getLogger(RollYourOwnTlsTest.class);
 
-    record SessionKeys(SecretKey aes, SecretKey hmac) {};
-    record ProtectedMessage(byte[] ciphertext, byte[] iv, byte[] signature) {};
+    record SessionKeys(SecretKey aes, SecretKey hmac) {} // TODO Derive ID instead of random
+    record ProtectedMessage(byte[] ciphertext, byte[] iv, byte[] signature) {} // TODO Derive IV instead of sending
 
     @Test void testEc() throws Exception {
-        testHelper(sessionKdfKeyEcdh()); // EC Key agreement
+        testHelper(sessionKdfKeyEcdh()); // EC Key agreement (521-bit)
     }
 
     @Test void testHmac() throws Exception {
-        testHelper(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated
+        testHelper(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated (800-bit)
     }
 
     @Test void testRsa() throws Exception {
-        testHelper(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key
+        testHelper(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (1024-bit, but wrapped in 128-bit)
     }
 
     private static void testHelper(final byte[] sessionKdfKey) throws Exception {
@@ -91,7 +101,7 @@ public class RollYourOwnTlsTest {
 
         // Client generates a KDF key
         final Provider secureRandomProvider = Security.getProvider("SUN"); // for algorithm=SHA1PRNG
-        final byte[] kdfKey = KeyGenUtil.getRandomBytes(128,"SHA1PRNG", secureRandomProvider);
+        final byte[] kdfKey = KeyGenUtil.getRandomBytes(80,"SHA1PRNG", secureRandomProvider);
 
         // Client encrypts the KDF key with the server RSA public key (2048-bit => 256-bytes => 128-bytes max plus pad)
         final Cipher encryptCipher = Cipher.getInstance("RSA");
@@ -120,7 +130,7 @@ public class RollYourOwnTlsTest {
         System.arraycopy(serverSalt, 0, clientKeyMaterial, 0, serverSalt.length);
         System.arraycopy(clientSalt, 0, clientKeyMaterial, serverSalt.length, clientSalt.length);
 
-        // Server input key material = server salt + client salt
+        // Server input key material = server salt + client salt // TODO Prepend label "master secret"
         final byte[] serverKeyMaterial = new byte[serverSalt.length + clientSalt.length];
         System.arraycopy(serverSalt, 0, serverKeyMaterial, 0, serverSalt.length);
         System.arraycopy(clientSalt, 0, serverKeyMaterial, serverSalt.length, clientSalt.length);
@@ -130,7 +140,9 @@ public class RollYourOwnTlsTest {
         return serverKeyMaterial;
     }
 
-    private static SessionKeys getSessionAesAndHmacKeys(byte[] sessionKdfKey, byte[] sessionKdfIkm) throws NoSuchAlgorithmException, InvalidKeyException {
+    private static SessionKeys getSessionAesAndHmacKeys(byte[] sessionKdfKey, byte[] sessionKdfIkm) throws Exception {
+        // TODO Use pre-master key to derive master key first, then use master key to derive AES+HMAC+IV
+
         // Client uses KDF key and KDF input key material to derive a session key (= AES-256-CBC + HmacSHA256)
         final Mac clientMac = Mac.getInstance("HmacSHA512"); // 512-bit, 64-bytes
         clientMac.init(new SecretKeySpec(sessionKdfKey, "HmacSHA512"));
@@ -148,10 +160,10 @@ public class RollYourOwnTlsTest {
         // Verify both sides derive the same session key (= AES-256-CBC + HmacSHA256)
         assertThat(clientSessionAesKey, is(equalTo(serverSessionAesKey)));
         assertThat(clientSessionMacKey, is(equalTo(serverSessionMacKey)));
-        return new SessionKeys(serverSessionAesKey, serverSessionMacKey);
+        return new SessionKeys(serverSessionAesKey, serverSessionMacKey); // TODO Derive IV
     }
 
-    private static ProtectedMessage encryptAndSignBody(SessionKeys sessionKeys, String clientClearRequest) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+    private static ProtectedMessage encryptAndSignBody(SessionKeys sessionKeys, String clientClearRequest) throws Exception {
         // Client generates a clear request
         LOGGER.info("Client Clear Request [{}b,{}B]: {}", 8 * clientClearRequest.length(), clientClearRequest.length(), clientClearRequest);
 
@@ -181,7 +193,7 @@ public class RollYourOwnTlsTest {
         return new ProtectedMessage(receivedEncryptedRequest, receivedAesCbcIv, receivedRequestSignature);
     }
 
-    private static String verifyAndDecryptBody(SessionKeys sessionKeys, ProtectedMessage payload) throws NoSuchAlgorithmException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+    private static String verifyAndDecryptBody(SessionKeys sessionKeys, ProtectedMessage payload) throws Exception {
         // Server verifies the signature using the HmacSha256 part of the session key
         final Mac serverRequestMac = Mac.getInstance("HmacSHA256");
         serverRequestMac.init(sessionKeys.hmac());
@@ -198,4 +210,22 @@ public class RollYourOwnTlsTest {
         LOGGER.info("Server Decrypted Request [{}b,{}B]: {}", 8 * serverClearRequest.length(), serverClearRequest.length(), serverClearRequest);
         return serverClearRequest;
     }
+
+    /**
+     * TLS :
+     *   premaster_secret = ECDH/RSA(pre_master_secret)                                        // derived, random, PSK
+     *   master_secret = PRF(pre_master_secret,                                                // derived, random, PSK
+     *                       "master secret",                                                  // label
+     *                       ClientHello.random + ServerHello.random)                          // seed
+     *   key_block = PRF(SecurityParameters.master_secret,                                     // always derived
+     *                   "key expansion",                                                      // label
+     *                   SecurityParameters.server_random + SecurityParameters.client_random); // seed
+     *
+     *   client_write_MAC_key[SecurityParameters.mac_key_length] // empty for AES-GCM
+     *   server_write_MAC_key[SecurityParameters.mac_key_length] // empty for AES-GCM
+     *   client_write_key[SecurityParameters.enc_key_length]
+     *   server_write_key[SecurityParameters.enc_key_length]
+     *   client_write_IV[SecurityParameters.fixed_iv_length]
+     *   server_write_IV[SecurityParameters.fixed_iv_length]
+     */
 }
