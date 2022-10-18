@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyAgreement;
-import javax.crypto.Mac;
-import javax.crypto.SecretKey;
+import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -20,68 +17,103 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
-public class KeyAgreementTest {
-    private static final Logger LOGGER = LoggerFactory.getLogger(KeyAgreementTest.class);
+/**
+ * Roll your own protected TLS-like protocol.
+ *
+ *  1. SESSION KDF KEY (OPTIONS: ECDH, ADMIN PSK, CLIENT GENERATED)
+ *  2. SESSION KDF IKM
+ *  3. SESSION AES+HMAC KEYS
+ *  4. ENCRYPT
+ *  5. SIGN
+ *  6. SEND
+ *  7. VERIFY
+ *  8. DECRYPT
+ */
+public class RollYourOwnTlsTest {
+    private static final Logger LOGGER = LoggerFactory.getLogger(RollYourOwnTlsTest.class);
 
-    /**
-     * Security components:
-     *  1. Session Key: KDF(PreKey,ClientIKM & ServerIKM), PreKey can be obtained via KA, PSK, or Client-generated.
-     *  2. Confidentiality: First chunk of session key is used as AES key (ex: AES-256-CBC, AES-256-GCM).
-     *  3. Integrity: Second chunk of session key is used as HMAC key (ex: HmacSHA256).
-     *  4. Authentication: Not required in handshake (i.e. sTLS 1.2 recommended not required, cTLS 1.2 optional)
-     *
-     * @throws Exception Error if something goes wrong
-     */
-    @Test
-    void testClientServerRollYourOwnTls() throws Exception {
+    record SessionKeys(SecretKey aes, SecretKey hmac) {};
+    record ProtectedMessage(byte[] ciphertext, byte[] iv, byte[] signature) {};
+
+    @Test void testKeyAgreement() throws Exception {
+        testHelper(sessionKdfKeyEcdh()); // Key agreement
+    }
+
+    @Test void testPreSharedKey() throws Exception {
+        testHelper(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated
+    }
+
+    @Test void testClientGeneratedKey() throws Exception {
+        testHelper(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key
+    }
+
+    private static void testHelper(final byte[] sessionKdfKey) throws Exception {
+        final byte[] sessionKdfIkm = getSessionKdfIkm(); // concatenated via shared random from both
+        final SessionKeys sessionKeys = getSessionAesAndHmacKeys(sessionKdfKey, sessionKdfIkm);
+        final String cleartext = "Hello World";
+        final ProtectedMessage protectedMessage = encryptAndSignBody(sessionKeys, cleartext);
+        final String decrypted = verifyAndDecryptBody(sessionKeys, protectedMessage);
+        assertThat(decrypted, is(equalTo(cleartext)));
+    }
+
+    private static byte[] sessionKdfKeyEcdh() throws Exception {
         final Provider keyPairGeneratorProvider = Security.getProvider("SunEC"); // for algorithm=secp521r1
         final Provider keyAgreementProvider = Security.getProvider("SunEC"); // for algorithm=ECDH
-        final Provider secureRandomProvider = Security.getProvider("SUN"); // for algorithm=SHA1PRNG
 
-        // KDF KEY (via KEY AGREEMENT)
-
-        // Client generates ephemeral EC-P521 key pairs for deriving a 521-bit KDF key
+        // Client & server generate ephemeral EC-P521 key pairs for deriving a 521-bit KDF key
         final KeyPair clientKeyPair = KeyGenUtil.generateKeyPair("EC", keyPairGeneratorProvider);
-        final PublicKey clientPublicKey = clientKeyPair.getPublic(); // send to server
-        final PrivateKey clientPrivateKey = clientKeyPair.getPrivate();
-
-        // Server generates ephemeral EC-P521 key pairs for deriving a 521-bit KDF key
         final KeyPair serverKeyPair = KeyGenUtil.generateKeyPair("EC", keyPairGeneratorProvider);
-        final PublicKey serverPublicKey = serverKeyPair.getPublic();
-        final PrivateKey serverPrivateKey = serverKeyPair.getPrivate();
-
-        // Confirm key pairs are different
-        assertThat(clientPrivateKey, is(not(equalTo(serverPrivateKey))));
-        assertThat(clientPublicKey, is(not(equalTo(serverPublicKey))));
+        assertThat(clientKeyPair.getPrivate(), is(not(equalTo(serverKeyPair.getPrivate()))));
+        assertThat(clientKeyPair.getPublic(), is(not(equalTo(serverKeyPair.getPublic()))));
 
         // Client KDF key = Server private key + Client public key
         final KeyAgreement clientKeyAgreement = KeyAgreement.getInstance("ECDH", keyAgreementProvider);
-        clientKeyAgreement.init(clientPrivateKey);
-        clientKeyAgreement.doPhase(serverPublicKey, true);
+        clientKeyAgreement.init(clientKeyPair.getPrivate());
+        clientKeyAgreement.doPhase(serverKeyPair.getPublic(), true);
         final byte[] clientKeyAgreementSecret = clientKeyAgreement.generateSecret();
         LOGGER.info("Client KeyAgreement Secret [{}b,{}B]: 0x{}", 8 * clientKeyAgreementSecret.length, clientKeyAgreementSecret.length, HexFormat.of().withUpperCase().formatHex(clientKeyAgreementSecret));
 
         // Server KDF key = Client private key + Server public key
         final KeyAgreement serverKeyAgreement = KeyAgreement.getInstance("ECDH", keyAgreementProvider);
-        serverKeyAgreement.init(serverPrivateKey);
-        serverKeyAgreement.doPhase(clientPublicKey, true);
+        serverKeyAgreement.init(serverKeyPair.getPrivate());
+        serverKeyAgreement.doPhase(clientKeyPair.getPublic(), true);
         final byte[] serverKeyAgreementSecret = serverKeyAgreement.generateSecret();
         LOGGER.info("Server KeyAgreement Secret [{}b,{}B]: 0x{}", 8 * serverKeyAgreementSecret.length, serverKeyAgreementSecret.length, HexFormat.of().withUpperCase().formatHex(clientKeyAgreementSecret));
 
         // Client KDF key == Server KDF key
         assertThat(clientKeyAgreementSecret, is(equalTo(serverKeyAgreementSecret)));
+        return serverKeyAgreementSecret;
+    }
 
-        // KDF INPUT KEY MATERIAL (via SECURE RANDOM)
+    private static byte[] sessionKdfKeyRsa() throws Exception {
+        // Server has an RSA key pair, and shares the RSA public key with the client
+        final KeyPair serverKeyPair = KeyGenUtil.generateKeyPair("RSA", null);
 
-        // Client generates ephemeral salt to share with the server
+        // Client generates a KDF key
+        final Provider secureRandomProvider = Security.getProvider("SUN"); // for algorithm=SHA1PRNG
+        final byte[] kdfKey = KeyGenUtil.getRandomBytes(128,"SHA1PRNG", secureRandomProvider);
+
+        // Client encrypts the KDF key with the server RSA public key (2048-bit => 256-bytes => 128-bytes max plus pad)
+        final Cipher encryptCipher = Cipher.getInstance("RSA");
+        encryptCipher.init(Cipher.ENCRYPT_MODE, serverKeyPair.getPublic());
+        final byte[] ciphertext = encryptCipher.doFinal(kdfKey);
+
+        final Cipher decryptCipher = Cipher.getInstance("RSA");
+        decryptCipher.init(Cipher.DECRYPT_MODE, serverKeyPair.getPrivate());
+        final byte[] decrypted = decryptCipher.doFinal(ciphertext);
+
+        // Decrypted == kdfKey
+        assertThat(Arrays.equals(kdfKey, decrypted), is(true));
+        return decrypted;
+    }
+
+    private static byte[] getSessionKdfIkm() throws Exception {
+        final Provider secureRandomProvider = Security.getProvider("SUN"); // for algorithm=SHA1PRNG
+
+        // Client & server generate input key material to share and combine
         final byte[] clientSalt = KeyGenUtil.getRandomBytes(40,"SHA1PRNG", secureRandomProvider);
-        // Server generates ephemeral salt to share with the client
         final byte[] serverSalt = KeyGenUtil.getRandomBytes(40, "SHA1PRNG", secureRandomProvider);
-
-        // Confirm salts are different
         assertThat(clientSalt, is(not(equalTo(serverSalt))));
-
-        // KDF INPUT KEY MATERIAL (via CONCATENATION)
 
         // Client input key material = server salt + client salt
         final byte[] clientKeyMaterial = new byte[serverSalt.length + clientSalt.length];
@@ -95,47 +127,47 @@ public class KeyAgreementTest {
 
         // Client input key material == Server input key material
         assertThat(clientKeyMaterial, is(equalTo(serverKeyMaterial)));
-        // At this point, both sides have the same KDF key (ex: EC-P521 => 521-bit derived secret) and key material
+        return serverKeyMaterial;
+    }
 
-        // KDF (via 521-BIT KDF KEY and 640-bit KDF INPUT KEY MATERIAL)
-
+    private static SessionKeys getSessionAesAndHmacKeys(byte[] sessionKdfKey, byte[] sessionKdfIkm) throws NoSuchAlgorithmException, InvalidKeyException {
         // Client uses KDF key and KDF input key material to derive a session key (= AES-256-CBC + HmacSHA256)
         final Mac clientMac = Mac.getInstance("HmacSHA512"); // 512-bit, 64-bytes
-        clientMac.init(new SecretKeySpec(clientKeyAgreementSecret, "HmacSHA512"));
-        final byte[] clientMacSecret = clientMac.doFinal(clientKeyMaterial);
+        clientMac.init(new SecretKeySpec(sessionKdfKey, "HmacSHA512"));
+        final byte[] clientMacSecret = clientMac.doFinal(sessionKdfIkm);
         final SecretKey clientSessionAesKey = new SecretKeySpec(clientMacSecret, 0, 32, "AES"); // 256-bit
         final SecretKey clientSessionMacKey = new SecretKeySpec(clientMacSecret, 32, 32, "AES"); // 256-bit
 
         // Server uses KDF key and KDF input key material to derive a session key (= AES-256-CBC + HmacSHA256)
         final Mac serverMac = Mac.getInstance("HmacSHA512"); // 512-bit, 64-bytes
-        serverMac.init(new SecretKeySpec(clientKeyAgreementSecret, "HmacSHA512"));
-        final byte[] serverMacSecret = serverMac.doFinal(serverKeyMaterial);
+        serverMac.init(new SecretKeySpec(sessionKdfKey, "HmacSHA512"));
+        final byte[] serverMacSecret = serverMac.doFinal(sessionKdfIkm);
         final SecretKey serverSessionAesKey = new SecretKeySpec(serverMacSecret, 0, 32, "AES");
         final SecretKey serverSessionMacKey = new SecretKeySpec(serverMacSecret, 32, 32, "AES");
 
         // Verify both sides derive the same session key (= AES-256-CBC + HmacSHA256)
         assertThat(clientSessionAesKey, is(equalTo(serverSessionAesKey)));
         assertThat(clientSessionMacKey, is(equalTo(serverSessionMacKey)));
+        return new SessionKeys(serverSessionAesKey, serverSessionMacKey);
+    }
 
-        // CLIENT ENCRYPTS A REQUEST
-
+    private static ProtectedMessage encryptAndSignBody(SessionKeys sessionKeys, String clientClearRequest) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         // Client generates a clear request
-        final String clientClearRequest = "Hello World";
         LOGGER.info("Client Clear Request [{}b,{}B]: {}", 8 * clientClearRequest.length(), clientClearRequest.length(), clientClearRequest);
 
         // Client encrypts the clear request using the AES-256-CBC part of the session key
         final byte[] clientAesCbcIv = new byte[16];
         SecureRandom.getInstanceStrong().nextBytes(clientAesCbcIv);
         final Cipher clientAesCbcCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        clientAesCbcCipher.init(Cipher.ENCRYPT_MODE, clientSessionAesKey, new IvParameterSpec(clientAesCbcIv));
+        clientAesCbcCipher.init(Cipher.ENCRYPT_MODE, sessionKeys.aes(), new IvParameterSpec(clientAesCbcIv));
         final byte[] clientEncryptedRequest = clientAesCbcCipher.doFinal(clientClearRequest.getBytes(StandardCharsets.UTF_8));
 
         // CLIENT SIGNS THE ENCRYPTED REQUEST
 
         // Client signs the encrypted request using the HmacSha256 part of the session key
         final Mac clientRequestMac = Mac.getInstance("HmacSHA256");
-        clientRequestMac.init(clientSessionMacKey);
-        final byte[] clientRequestSignature = clientMac.doFinal(clientEncryptedRequest);
+        clientRequestMac.init(sessionKeys.hmac());
+        final byte[] clientRequestSignature = clientRequestMac.doFinal(clientEncryptedRequest);
 
         // CLIENT SENDS THE ENCRYPTED+SIGNED REQUEST
 
@@ -146,39 +178,24 @@ public class KeyAgreementTest {
         LOGGER.info("Received Signature [{}b,{}B]: {}", 8 * receivedRequestSignature.length, receivedRequestSignature.length, receivedRequestSignature);
         LOGGER.info("Received Encrypted Request [{}b,{}B]: {}", 8 * receivedEncryptedRequest.length, receivedEncryptedRequest.length, receivedEncryptedRequest);
         LOGGER.info("Received AES CBC IV [{}b,{}B]: {}", 8 * receivedAesCbcIv.length, receivedAesCbcIv.length, receivedAesCbcIv);
+        return new ProtectedMessage(receivedEncryptedRequest, receivedAesCbcIv, receivedRequestSignature);
+    }
 
-        // SERVER VERIFIES THE REQUEST
-
+    private static String verifyAndDecryptBody(SessionKeys sessionKeys, ProtectedMessage payload) throws NoSuchAlgorithmException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         // Server verifies the signature using the HmacSha256 part of the session key
         final Mac serverRequestMac = Mac.getInstance("HmacSHA256");
-        serverRequestMac.init(serverSessionMacKey);
-        final byte[] serverRequestSignature = clientMac.doFinal(receivedEncryptedRequest);
-        assertThat(serverRequestSignature, is(equalTo(receivedRequestSignature)));
+        serverRequestMac.init(sessionKeys.hmac());
+        final byte[] serverRequestSignature = serverRequestMac.doFinal(payload.ciphertext());
+        assertThat(serverRequestSignature, is(equalTo(payload.signature())));
 
         // SERVER DECRYPTS THE REQUEST
 
         // Server uses the AES-256-CBC part of the session key, and the clear IV, to decrypt the client request
         final Cipher serverAesCbcCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        serverAesCbcCipher.init(Cipher.DECRYPT_MODE, serverSessionAesKey, new IvParameterSpec(receivedAesCbcIv));
-        final byte[] serverClearRequestBytes = serverAesCbcCipher.doFinal(receivedEncryptedRequest);
+        serverAesCbcCipher.init(Cipher.DECRYPT_MODE, sessionKeys.aes(), new IvParameterSpec(payload.iv()));
+        final byte[] serverClearRequestBytes = serverAesCbcCipher.doFinal(payload.ciphertext());
         final String serverClearRequest = new String(serverClearRequestBytes, StandardCharsets.UTF_8);
         LOGGER.info("Server Decrypted Request [{}b,{}B]: {}", 8 * serverClearRequest.length(), serverClearRequest.length(), serverClearRequest);
-
-        // SERVER VERIFIES THE VERIFIED+DECRYPTED REQUEST MATCHES WHAT THE CLIENT INTENDED TO SEND
-
-        // Verify the server decrypted the original clear client request
-        assertThat(serverClearRequest, is(equalTo(clientClearRequest)));
-    }
-
-
-    /**
-     * Types of authentication:
-     *  1. Central trust (ex: PKI), central public keys are trusted (aka public CA certificates)
-     *  2. Group trust (ex: PGP), trusted public key is a seed seeds to trust other public keys (aka 2nd level connections)
-     *  3. Single trust (ex: SSH), individual public keys are trusted (aka 1st level connections)
-     */
-    @Test
-    void testClientServerRollYourOwnAuthentication() throws Exception {
-        // TODO
+        return serverClearRequest;
     }
 }
