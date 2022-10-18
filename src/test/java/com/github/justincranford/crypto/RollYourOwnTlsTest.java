@@ -46,18 +46,18 @@ public class RollYourOwnTlsTest {
     record ProtectedMessage(byte[] ciphertext, byte[] iv, byte[] signature) {} // TODO Derive IV instead of sending
 
     @Test void testEc() throws Exception {
-        testHelper(sessionKdfKeyEcdh()); // EC Key agreement (521-bit)
+        doSymmetricCrypto(sessionKdfKeyEcdh()); // EC Key agreement (521-bit)
     }
 
     @Test void testHmac() throws Exception {
-        testHelper(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated (800-bit)
+        doSymmetricCrypto(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated (800-bit)
     }
 
     @Test void testRsa() throws Exception {
-        testHelper(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (1024-bit, but wrapped in 128-bit)
+        doSymmetricCrypto(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (1024-bit, but wrapped in 128-bit)
     }
 
-    private static void testHelper(final byte[] sessionKdfKey) throws Exception {
+    private static void doSymmetricCrypto(final byte[] sessionKdfKey) throws Exception {
         final byte[] sessionKdfIkm = getSessionKdfIkm(); // concatenated via shared random from both
         final SessionKeys sessionKeys = getSessionAesAndHmacKeys(sessionKdfKey, sessionKdfIkm);
         final String cleartext = "Hello World";
