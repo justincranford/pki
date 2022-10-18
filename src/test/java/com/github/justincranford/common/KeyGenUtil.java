@@ -28,9 +28,9 @@ public class KeyGenUtil {
         return subjectKeyPairGenerator.generateKeyPair();
     }
 
-    public static byte[] getRandomBytes(final String algorithm, final Provider provider) throws Exception {
+    public static byte[] getRandomBytes(final int i, final String algorithm, final Provider provider) throws Exception {
         final SecureRandom secureRandom = SecureRandom.getInstance(algorithm, provider);
-        final byte[] randomBytes = new byte[32];
+        final byte[] randomBytes = new byte[i];
         secureRandom.nextBytes(randomBytes);
         return randomBytes;
     }
