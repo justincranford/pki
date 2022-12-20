@@ -74,23 +74,34 @@ class TestPkiDomains {
 
 	@Test void testCreate() throws Exception {
 		final List<KeyStoreManager> caChain = new ArrayList<>();
-//		final List<KeyStoreManager> endEntities = new ArrayList<>();;
+		final List<KeyStoreManager> endEntities = new ArrayList<>();
 
 		final int numCa = 3;
 		KeyStoreManager ksmIssuer = null;
 		for (int i = 0; i < numCa; i++) {
-			final char[] password = ("Pwd"+i).toCharArray();
+			final char[] password = ("CaPwd"+i).toCharArray();
+			// Example: numCa=3 => Root pathLenConstraint=2, Intermediate pathLenConstraint=1, Issuing pathLenConstraint=1
+			final int pathLenConstraint = numCa - 1 - i;
 			final Extension[] caExtensions = new Extension[] {
-					new Extension(Extension.basicConstraints, true, new BasicConstraints(numCa - 1 - i).toASN1Primitive().getEncoded()),
+					new Extension(Extension.basicConstraints, true, new BasicConstraints(pathLenConstraint).toASN1Primitive().getEncoded()),
 					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
 				};
-			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "DC=CA " + i, "EC", password, password, caExtensions, null);
+			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "DC=CA" + i, "EC", password, password, caExtensions, null);
 			caChain.add(ksmSubject);
 			ksmIssuer = ksmSubject;
 		}
 		Collections.reverse(caChain);
 
-//		this.client   = KeyStoreManager.create(this.clientCa, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
-//		this.server   = KeyStoreManager.create(this.serverCa, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
+		final int numEndEntities = 2;
+		for (int i = 0; i < numEndEntities; i++) {
+			final char[] password = ("EndEntityPwd"+i).toCharArray();
+			final Extension[] endEntityExtensions = new Extension[] {
+					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
+					new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
+					new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, "endEntity"+i+"@example.com")).build().toASN1Primitive().getEncoded())
+				};
+			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "UID=" + i, "EC", password, password, endEntityExtensions, null);
+			endEntities.add(ksmSubject);
+		}
 	}
 }
