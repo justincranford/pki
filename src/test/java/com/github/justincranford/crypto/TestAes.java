@@ -42,7 +42,7 @@ class TestAes {
 	@Test void testAes() throws Exception {
 		// GCM, CBC, ECB
 		final Provider keyGeneratorProvider = Security.getProvider("BC");
-		final SecretKey secretKey = KeyGenUtil.generateSecretKey(32, "AES", keyGeneratorProvider);
+		final SecretKey secretKey = KeyGenUtil.generateSecretKey(256, "AES", keyGeneratorProvider);
 		final byte[] clearBytes = KeyGenUtil.getRandomBytes(16);
 
 		// CBC only

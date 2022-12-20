@@ -15,6 +15,14 @@ import javax.crypto.spec.SecretKeySpec;
 public class KeyGenUtil {
 	public static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
+	public static KeyPairGenerator getKeyPairGenerator(final String algorithm, final Provider provider) throws NoSuchAlgorithmException {
+        return (provider == null) ? KeyPairGenerator.getInstance(algorithm) : KeyPairGenerator.getInstance(algorithm, provider);
+	}
+
+	public static KeyGenerator getKeyGenerator(final String algorithm, final Provider provider) throws NoSuchAlgorithmException {
+		return (provider == null) ? KeyGenerator.getInstance(algorithm) : KeyGenerator.getInstance(algorithm, provider);
+	}
+
     public static KeyPair generateDhKeyPair(final int lengthBits, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("DiffieHellman", provider);
         keyPairGenerator.initialize(lengthBits, SECURE_RANDOM);	// new DHGenParameterSpec(2048, 224)
@@ -36,19 +44,15 @@ public class KeyGenUtil {
         return keyPairGenerator.generateKeyPair();
     }
 
-	public static KeyPairGenerator getKeyPairGenerator(final String algorithm, final Provider provider) throws NoSuchAlgorithmException {
-        return (provider == null) ? KeyPairGenerator.getInstance(algorithm) : KeyPairGenerator.getInstance("EC", provider);
-	}
-
     public static byte[] getRandomBytes(final int bytesLength) throws Exception {
         final byte[] randomBytes = new byte[bytesLength];
         SECURE_RANDOM.nextBytes(randomBytes);
         return randomBytes;
     }
 
-	public static SecretKey generateSecretKey(final int keySizeBytes, final String algorithm, final Provider provider) throws Exception {
-		final KeyGenerator keyGenerator = KeyGenerator.getInstance("AES", provider);
-		keyGenerator.init(keySizeBytes * 8);
+	public static SecretKey generateSecretKey(final int lengthBits, final String algorithm, final Provider provider) throws Exception {
+		final KeyGenerator keyGenerator = KeyGenUtil.getKeyGenerator(algorithm, provider);
+		keyGenerator.init(lengthBits);
 		return keyGenerator.generateKey();
 	}
 
