@@ -50,7 +50,7 @@ public class RollYourOwnTlsTest {
     }
 
     @Test void testHmac() throws Exception {
-        doSymmetricCrypto(KeyGenUtil.getRandomBytes(100,"SHA1PRNG", Security.getProvider("SUN"))); // admin generated (800-bit)
+        doSymmetricCrypto(KeyGenUtil.getRandomBytes(100)); // admin generated (800-bit)
     }
 
     @Test void testRsa() throws Exception {
@@ -100,8 +100,7 @@ public class RollYourOwnTlsTest {
         final KeyPair serverKeyPair = KeyGenUtil.generateKeyPair("RSA", null);
 
         // Client generates a KDF key
-        final Provider secureRandomProvider = Security.getProvider("SUN"); // for algorithm=SHA1PRNG
-        final byte[] kdfKey = KeyGenUtil.getRandomBytes(80,"SHA1PRNG", secureRandomProvider);
+        final byte[] kdfKey = KeyGenUtil.getRandomBytes(80);
 
         // Client encrypts the KDF key with the server RSA public key (2048-bit => 256-bytes => 128-bytes max plus pad)
         final Cipher encryptCipher = Cipher.getInstance("RSA");
@@ -118,11 +117,9 @@ public class RollYourOwnTlsTest {
     }
 
     private static byte[] getSessionKdfIkm() throws Exception {
-        final Provider secureRandomProvider = Security.getProvider("SUN"); // for algorithm=SHA1PRNG
-
         // Client & server generate input key material to share and combine
-        final byte[] clientSalt = KeyGenUtil.getRandomBytes(40,"SHA1PRNG", secureRandomProvider);
-        final byte[] serverSalt = KeyGenUtil.getRandomBytes(40, "SHA1PRNG", secureRandomProvider);
+        final byte[] clientSalt = KeyGenUtil.getRandomBytes(40);
+        final byte[] serverSalt = KeyGenUtil.getRandomBytes(40);
         assertThat(clientSalt, is(not(equalTo(serverSalt))));
 
         // Client input key material = server salt + client salt
