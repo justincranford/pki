@@ -26,7 +26,9 @@ import static org.hamcrest.Matchers.not;
 
 /**
  * TLS Key Exchange:
- *  Summary: ECDH => Pre-master Key -> Master Key (48-byte) -> Keys and IVs
+ *  1. Pre-master Key (e.g. DH-2048, ECDH-P384, RSA-2048, PSK)
+ *  2. Master Key (always 48-byte)
+ *  3. Encryption & MAC/IV Keys
  *
  * Roll your own TLS-like protocol.
  *  1. SESSION KDF KEY (ECDH, ADMIN PSK, RSA ENCRYPTED CLIENT KEY) => Analogous to TLS pre-master secret
@@ -54,7 +56,7 @@ public class RollYourOwnTlsTest {
     }
 
     @Test void testRsa() throws Exception {
-        doSymmetricCrypto(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (1024-bit, but wrapped in 128-bit)
+        doSymmetricCrypto(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (80-bytes)
     }
 
     private static void doSymmetricCrypto(final byte[] sessionKdfKey) throws Exception {
@@ -66,13 +68,19 @@ public class RollYourOwnTlsTest {
         assertThat(decrypted, is(equalTo(cleartext)));
     }
 
+    /*
+     * Client and server generate ephemeral EC key pairs, and shares their public keys.
+     * - Client private key + Server public key = ECDH pre-master secret
+     * - Server private key + Client public key = ECDH pre-master secret
+     * Both sides derive the same ECDH pre-master secret (ex: EC-P521 key pairs => 521-bit pre-master secret)
+     */
     private static byte[] sessionKdfKeyEcdh() throws Exception {
         final Provider keyPairGeneratorProvider = Security.getProvider("SunEC"); // for algorithm=secp521r1
         final Provider keyAgreementProvider = Security.getProvider("SunEC"); // for algorithm=ECDH
 
         // Client & server generate ephemeral EC-P521 key pairs for deriving a 521-bit KDF key
-        final KeyPair clientKeyPair = KeyGenUtil.generateKeyPair("EC", keyPairGeneratorProvider);
-        final KeyPair serverKeyPair = KeyGenUtil.generateKeyPair("EC", keyPairGeneratorProvider);
+        final KeyPair clientKeyPair = KeyGenUtil.generateEcKeyPair("secp521r1", keyPairGeneratorProvider);
+        final KeyPair serverKeyPair = KeyGenUtil.generateEcKeyPair("secp521r1", keyPairGeneratorProvider);
         assertThat(clientKeyPair.getPrivate(), is(not(equalTo(serverKeyPair.getPrivate()))));
         assertThat(clientKeyPair.getPublic(), is(not(equalTo(serverKeyPair.getPublic()))));
 
@@ -97,12 +105,12 @@ public class RollYourOwnTlsTest {
 
     private static byte[] sessionKdfKeyRsa() throws Exception {
         // Server has an RSA key pair, and shares the RSA public key with the client
-        final KeyPair serverKeyPair = KeyGenUtil.generateKeyPair("RSA", null);
+        final KeyPair serverKeyPair = KeyGenUtil.generateRsaKeyPair(2048, null);
 
         // Client generates a KDF key
         final byte[] kdfKey = KeyGenUtil.getRandomBytes(80);
 
-        // Client encrypts the KDF key with the server RSA public key (2048-bit => 256-bytes => 128-bytes max plus pad)
+        // Client encrypts the KDF key with the server RSA public key (2048-bit => Max encrypt 256-bytes minus PADDING)
         final Cipher encryptCipher = Cipher.getInstance("RSA");
         encryptCipher.init(Cipher.ENCRYPT_MODE, serverKeyPair.getPublic());
         final byte[] ciphertext = encryptCipher.doFinal(kdfKey);
