@@ -94,13 +94,14 @@ class TestPkiDomains {
 
 		final int numEndEntities = 2;
 		for (int i = 0; i < numEndEntities; i++) {
+			final String email = "EndEntity"+i+"@example.com";
 			final char[] password = ("EndEntityPwd"+i).toCharArray();
 			final Extension[] endEntityExtensions = new Extension[] {
 					new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-					new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
-					new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, "endEntity"+i+"@example.com")).build().toASN1Primitive().getEncoded())
+					new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth, KeyPurposeId.id_kp_serverAuth}).toASN1Primitive().getEncoded()),
+					new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, email)).build().toASN1Primitive().getEncoded())
 				};
-			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "UID=" + i, "EC", password, password, endEntityExtensions, null);
+			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "CN=EndEntity"+i+"+serialNumber=" + i, "EC", password, password, endEntityExtensions, null);
 			endEntities.add(ksmSubject);
 		}
 	}
