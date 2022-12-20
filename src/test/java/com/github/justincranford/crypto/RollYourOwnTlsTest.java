@@ -1,6 +1,8 @@
 package com.github.justincranford.crypto;
 
 import com.github.justincranford.common.KeyGenUtil;
+import com.github.justincranford.common.SecureRandomUtil;
+
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,15 +50,15 @@ public class RollYourOwnTlsTest {
     record ProtectedMessage(byte[] ciphertext, byte[] iv, byte[] signature) {} // TODO Derive IV instead of sending
 
     @Test void testEc() throws Exception {
-        doSymmetricCrypto(sessionKdfKeyEcdh()); // EC Key agreement (521-bit)
+        doSymmetricCrypto(sessionKdfKeyEcdh()); // EC Key agreement (e.g. 521-bit)
     }
 
     @Test void testHmac() throws Exception {
-        doSymmetricCrypto(KeyGenUtil.getRandomBytes(100)); // admin generated (800-bit)
+        doSymmetricCrypto(KeyGenUtil.getRandomBytes(100)); // admin generated (e.g. 800-bit)
     }
 
     @Test void testRsa() throws Exception {
-        doSymmetricCrypto(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (80-bytes)
+        doSymmetricCrypto(sessionKdfKeyRsa()); // client generated, encrypted with server RSA public key (e.g. 640-bit)
     }
 
     private static void doSymmetricCrypto(final byte[] sessionKdfKey) throws Exception {
@@ -174,7 +176,7 @@ public class RollYourOwnTlsTest {
 
         // Client encrypts the clear request using the AES-256-CBC part of the session key
         final byte[] clientAesCbcIv = new byte[16];
-        SecureRandom.getInstanceStrong().nextBytes(clientAesCbcIv);
+        SecureRandomUtil.DEFAULT.nextBytes(clientAesCbcIv);
         final Cipher clientAesCbcCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         clientAesCbcCipher.init(Cipher.ENCRYPT_MODE, sessionKeys.aes(), new IvParameterSpec(clientAesCbcIv));
         final byte[] clientEncryptedRequest = clientAesCbcCipher.doFinal(clientClearRequest.getBytes(StandardCharsets.UTF_8));

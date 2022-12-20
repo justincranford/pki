@@ -4,7 +4,6 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
-import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 
@@ -13,8 +12,6 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 public class KeyGenUtil {
-	public static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
 	public static KeyPairGenerator getKeyPairGenerator(final String algorithm, final Provider provider) throws NoSuchAlgorithmException {
         return (provider == null) ? KeyPairGenerator.getInstance(algorithm) : KeyPairGenerator.getInstance(algorithm, provider);
 	}
@@ -25,13 +22,13 @@ public class KeyGenUtil {
 
     public static KeyPair generateDhKeyPair(final int lengthBits, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("DiffieHellman", provider);
-        keyPairGenerator.initialize(lengthBits, SECURE_RANDOM);	// new DHGenParameterSpec(2048, 224)
+        keyPairGenerator.initialize(lengthBits, SecureRandomUtil.DEFAULT);	// new DHGenParameterSpec(2048, 224) can be used instead of lengthBits
         return keyPairGenerator.generateKeyPair();
     }
 
     public static KeyPair generateRsaKeyPair(final int lengthBits, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("RSA", provider);
-        keyPairGenerator.initialize(lengthBits, SECURE_RANDOM);
+        keyPairGenerator.initialize(lengthBits, SecureRandomUtil.DEFAULT);
         return keyPairGenerator.generateKeyPair();
     }
 
@@ -40,13 +37,13 @@ public class KeyGenUtil {
     // NIST EC P-521 => "secp521r1"
     public static KeyPair generateEcKeyPair(final String curve, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("EC", provider);
-        keyPairGenerator.initialize(new ECGenParameterSpec(curve), SECURE_RANDOM);
+        keyPairGenerator.initialize(new ECGenParameterSpec(curve), SecureRandomUtil.DEFAULT);
         return keyPairGenerator.generateKeyPair();
     }
 
     public static byte[] getRandomBytes(final int bytesLength) throws Exception {
         final byte[] randomBytes = new byte[bytesLength];
-        SECURE_RANDOM.nextBytes(randomBytes);
+        SecureRandomUtil.DEFAULT.nextBytes(randomBytes);
         return randomBytes;
     }
 

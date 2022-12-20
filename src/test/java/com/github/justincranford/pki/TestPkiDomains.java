@@ -83,8 +83,8 @@ import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 
 @DisplayName("Test Mutual TLS")
-class TestTls {
-	private static final Logger LOGGER = LoggerFactory.getLogger(TestTls.class);
+class TestPkiDomains {
+	private static final Logger LOGGER = LoggerFactory.getLogger(TestPkiDomains.class);
 
 	// Root CA, Sub CA, Cross-cert, Client/Server End Entity, Client/Server self-signed, etc
 	record KeyStoreManager(
@@ -103,10 +103,10 @@ class TestTls {
 	private KeyStoreManager server;		// server can be server CA-signed or self-signed
 
 	// Client and server SunPKCS11 configs are in /pki/src/test/resources/
-	private static final String SUNPKCS11_CLIENT_CA_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-ca-entity.conf");
-	private static final String SUNPKCS11_SERVER_CA_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-ca-entity.conf");
-	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
-	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
+	private static final String SUNPKCS11_CLIENT_CA_CONF = TestPkiDomains.resourceToFilePath("/SunPKCS11-client-ca-entity.conf");
+	private static final String SUNPKCS11_SERVER_CA_CONF = TestPkiDomains.resourceToFilePath("/SunPKCS11-server-ca-entity.conf");
+	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestPkiDomains.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
+	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestPkiDomains.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
 	private static final Extension[] EXTENSIONS_ROOT_CA;
 	private static final Extension[] EXTENSIONS_CLIENT;
@@ -147,70 +147,70 @@ class TestTls {
 	}
 
 	@AfterEach void afterEach() throws Exception {
-		TestTls.logoutSunPkcs11(this.clientCa);
-		TestTls.logoutSunPkcs11(this.serverCa);
-		TestTls.logoutSunPkcs11(this.client);
-		TestTls.logoutSunPkcs11(this.server);
+		TestPkiDomains.logoutSunPkcs11(this.clientCa);
+		TestPkiDomains.logoutSunPkcs11(this.serverCa);
+		TestPkiDomains.logoutSunPkcs11(this.client);
+		TestPkiDomains.logoutSunPkcs11(this.server);
 	}
 
 	@Test void testMutualTlsSelfSignedAllP12() throws Exception {
 		this.clientCa = null; // no client CA => client will be self-issued and self-signed
 		this.serverCa = null; // no server CA => server will be self-issued and self-signed
-		this.client   = TestTls.createKeyStoreManager(null,          "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
-		this.server   = TestTls.createKeyStoreManager(null,          "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER, null);
+		this.client   = TestPkiDomains.createKeyStoreManager(null,          "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT, null);
+		this.server   = TestPkiDomains.createKeyStoreManager(null,          "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER, null);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsSelfSignedAllP11() throws Exception {
 		this.checkForSoftHsm2ConfEnvVariable();
 		this.clientCa = null; // no client CA => client will be self-issued and self-signed
 		this.serverCa = null; // no server CA => server will be self-issued and self-signed
-		this.client   = TestTls.createKeyStoreManager(null,          "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
-		this.server   = TestTls.createKeyStoreManager(null,          "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		this.client   = TestPkiDomains.createKeyStoreManager(null,          "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		this.server   = TestPkiDomains.createKeyStoreManager(null,          "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedAllP12() throws Exception {
-		this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
-		this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
-		this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
-		this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
+		this.clientCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.serverCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.client   = TestPkiDomains.createKeyStoreManager(this.clientCa, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
+		this.server   = TestPkiDomains.createKeyStoreManager(this.serverCa, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedAllP11() throws Exception {
 		this.checkForSoftHsm2ConfEnvVariable();
-		this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
-		this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
-		this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
-		this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+		this.clientCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+		this.serverCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+		this.client   = TestPkiDomains.createKeyStoreManager(this.clientCa, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+		this.server   = TestPkiDomains.createKeyStoreManager(this.serverCa, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedMixedP12AndP11() throws Exception {
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
 			this.clientCa = null;
 		} else if (SecureRandomUtil.DEFAULT.nextBoolean()) {
-			this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.clientCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.clientCa = TestTls.createKeyStoreManager(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+			this.clientCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
 		}
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
 			this.serverCa = null;
 		} else if (SecureRandomUtil.DEFAULT.nextBoolean()) {
-			this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.serverCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.serverCa = TestTls.createKeyStoreManager(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+			this.serverCa = TestPkiDomains.createKeyStoreManager(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
 		}
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
-			this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
+			this.client   = TestPkiDomains.createKeyStoreManager(this.clientCa, "CN=Client",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.client   = TestTls.createKeyStoreManager(this.clientCa, "CN=Client",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
+			this.client   = TestPkiDomains.createKeyStoreManager(this.clientCa, "CN=Client",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
 		}
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
-			this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
+			this.server   = TestPkiDomains.createKeyStoreManager(this.serverCa, "CN=Server",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.server   = TestTls.createKeyStoreManager(this.serverCa, "CN=Server",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
+			this.server   = TestPkiDomains.createKeyStoreManager(this.serverCa, "CN=Server",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		}
 		this.mutualTlsHelper();
 	}
@@ -256,7 +256,7 @@ class TestTls {
 			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, authProvider) : KeyGenUtil.generateEcKeyPair("secp521r1", authProvider);
 			subjectKeyStoreProvider = authProvider;
 			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
-			TestTls.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
+			TestPkiDomains.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
 		}
 
 		final Provider issuerSignatureProvider;
@@ -277,7 +277,7 @@ class TestTls {
 			subjectName = subjectRelativeName + "," + issuerName;
 		}
 
-		final Certificate subjectCertificate = TestTls.createCert(
+		final Certificate subjectCertificate = TestPkiDomains.createCert(
 			Date.from(ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant()),
 			Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
 			new BigInteger(159, SecureRandomUtil.DEFAULT),
@@ -456,7 +456,7 @@ class TestTls {
 
 	private static String resourceToFilePath(final String resource) throws IllegalArgumentException {
 		try {
-			return new File(TestTls.class.getResource(resource).toURI()).getAbsolutePath();
+			return new File(TestPkiDomains.class.getResource(resource).toURI()).getAbsolutePath();
 		} catch (URISyntaxException e) {
 			throw new IllegalArgumentException("");
 		}
