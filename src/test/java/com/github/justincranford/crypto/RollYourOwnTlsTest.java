@@ -1,11 +1,16 @@
 package com.github.justincranford.crypto;
 
-import com.github.justincranford.common.KeyGenUtil;
-import com.github.justincranford.common.SecureRandomUtil;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
-import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.Provider;
+import java.security.Security;
+import java.util.Arrays;
+import java.util.HexFormat;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
@@ -13,18 +18,13 @@ import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
-import java.security.Provider;
-import java.security.SecureRandom;
-import java.security.Security;
-import java.util.Arrays;
-import java.util.HexFormat;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.github.justincranford.common.KeyGenUtil;
+import com.github.justincranford.common.SecureRandomUtil;
 
 /**
  * TLS Key Exchange:
