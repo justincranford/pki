@@ -89,7 +89,7 @@ public record KeyStoreManager(
 			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, authProvider) : KeyGenUtil.generateEcKeyPair("secp256r1", authProvider);
 			subjectKeyStoreProvider = authProvider;
 			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
-			KeyStoreManager.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
+			KeyStoreManager.deleteKeyStoreEntryAliases(subjectKeyStore, authProvider);
 		}
 
 		final Provider issuerSignatureProvider;
@@ -139,7 +139,9 @@ public record KeyStoreManager(
 		// Save entry. If SunPKCS11, ephemeral key pair is converted to permanent PKCS11 objects, and certificate chain is added with it. 
 		subjectKeyStore.setKeyEntry(subjectName, subjectKeyPair.getPrivate(), subjectKeyStoreEntryPassword, subjectCertificateChain);
 		final KeyStore.PrivateKeyEntry entry = (KeyStore.PrivateKeyEntry) subjectKeyStore.getEntry(subjectName, new KeyStore.PasswordProtection(subjectKeyStoreEntryPassword));
-		return new KeyStoreManager(subjectKeyStore, subjectKeyStoreProvider, subjectKeyStorePassword, entry, subjectName, subjectKeyStoreEntryPassword, subjectSignatureProvider);
+		final KeyStoreManager subjectKeyStoreManager = new KeyStoreManager(subjectKeyStore, subjectKeyStoreProvider, subjectKeyStorePassword, entry, subjectName, subjectKeyStoreEntryPassword, subjectSignatureProvider);
+		KeyStoreManager.printKeyStoreEntryAliases(subjectKeyStore, subjectKeyStoreProvider);
+		return subjectKeyStoreManager;
 	}
 
 	private static class ProviderCallbackHandler implements CallbackHandler {
@@ -156,10 +158,18 @@ public record KeyStoreManager(
 		}
 	}
 
-	private static void printKeyStoreEntryAliases(final KeyStore keyStore, final AuthProvider authProvider) throws Exception {
-		final StringBuilder sb = new StringBuilder(authProvider.getName() + " existing entries:\n");
+	private static void printKeyStoreEntryAliases(final KeyStore keyStore, final Provider provider) throws Exception {
+		final StringBuilder sb = new StringBuilder(provider.getName() + " existing entries:\n");
 		for (final String alias : Collections.list(keyStore.aliases())) {
-			sb.append("Entry[").append(alias).append("]: cert=").append(keyStore.isCertificateEntry(alias)).append(", key=").append(keyStore.isKeyEntry(alias)).append('\n');
+			sb.append("Entry[").append(alias).append("]: isTrustedCertificateEntry=").append(keyStore.isCertificateEntry(alias)).append(", isPrivateKeyEntry=").append(keyStore.isKeyEntry(alias)).append('\n');
+		}
+		LOGGER.info(sb.toString());
+	}
+
+	private static void deleteKeyStoreEntryAliases(final KeyStore keyStore, final Provider provider) throws Exception {
+		final StringBuilder sb = new StringBuilder(provider.getName() + " existing entries:\n");
+		for (final String alias : Collections.list(keyStore.aliases())) {
+			sb.append("Entry[").append(alias).append("]: isTrustedCertificateEntry=").append(keyStore.isCertificateEntry(alias)).append(", isPrivateKeyEntry=").append(keyStore.isKeyEntry(alias)).append('\n');
 			keyStore.deleteEntry(alias);
 		}
 		LOGGER.info(sb.toString());
