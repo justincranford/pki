@@ -27,6 +27,7 @@ import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.x500.X500Principal;
 
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x500.style.RFC4519Style;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +60,7 @@ public record KeyStoreManager(
 	 * @return Entity object containing links to the KeyStore, KeysStore provider, password, alias, entry password, and signature provider
 	 * @throws Exception Unexpected error
 	 */
-	public static KeyStoreManager createKeyStoreManager(
+	public static KeyStoreManager create(
 		final KeyStoreManager issuerKeyStoreManager,	// null for self-signed
 		final String subjectRelativeName,				// "CN=Client End Entity+serial=123";
 		final String subjectKeyPairAlgorithm,			// "EC";
@@ -75,7 +76,7 @@ public record KeyStoreManager(
 		final Provider subjectSignatureProvider;
 		if (subjectSunpkcs11Conf == null) {
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = subjectKeyPairAlgorithm.equals("RSA") ? Security.getProvider("SunRsaSign") : Security.getProvider("SunEC");
-			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, subjectKeyPairGeneratorProvider) : KeyGenUtil.generateEcKeyPair("secp521r1", subjectKeyPairGeneratorProvider);
+			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, subjectKeyPairGeneratorProvider) : KeyGenUtil.generateEcKeyPair("secp256r1", subjectKeyPairGeneratorProvider);
 			subjectKeyStoreProvider = Security.getProvider("SunJSSE");
 			subjectKeyStore = KeyStore.getInstance("PKCS12", subjectKeyStoreProvider);
 			subjectKeyStore.load(null, null);
@@ -85,7 +86,7 @@ public record KeyStoreManager(
 			authProvider.login(null, loginCallbackHandler);
 			Security.addProvider(authProvider); // register AuthProvider so JCA/JCE API calls can use it for crypto operations like KeyPairGenerator
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = authProvider;
-			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, authProvider) : KeyGenUtil.generateEcKeyPair("secp521r1", authProvider);
+			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, authProvider) : KeyGenUtil.generateEcKeyPair("secp256r1", authProvider);
 			subjectKeyStoreProvider = authProvider;
 			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
 			KeyStoreManager.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
@@ -99,12 +100,12 @@ public record KeyStoreManager(
 		if (issuerKeyStoreManager == null) {
 			issuerSignatureProvider = subjectSignatureProvider;
 			issuerPrivateKey = subjectKeyPair.getPrivate();
-			issuerSignatureAlgorithm = subjectKeyPairAlgorithm.equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
+			issuerSignatureAlgorithm = subjectKeyPairAlgorithm.equals("RSA") ? "SHA256withRSA" : "SHA256withECDSA";
 			subjectName = issuerName = subjectRelativeName;
 		} else {
 			issuerSignatureProvider = issuerKeyStoreManager.entrySignatureProvider;
 			issuerPrivateKey = issuerKeyStoreManager.entry.getPrivateKey();
-			issuerSignatureAlgorithm = issuerPrivateKey.getAlgorithm().equals("RSA") ? "SHA512withRSA" : "SHA512withECDSA";
+			issuerSignatureAlgorithm = issuerPrivateKey.getAlgorithm().equals("RSA") ? "SHA256withRSA" : "SHA256withECDSA";
 			issuerName = ((X509Certificate)issuerKeyStoreManager.entry.getCertificate()).getSubjectX500Principal().getName(X500Principal.RFC2253);
 			subjectName = subjectRelativeName + "," + issuerName;
 		}
@@ -114,9 +115,9 @@ public record KeyStoreManager(
 			Date.from(ZonedDateTime.of(2099, 12, 31, 23, 59, 59, 999999999, ZoneOffset.UTC).toInstant()),
 			new BigInteger(159, SecureRandomUtil.DEFAULT),
 			subjectKeyPair.getPublic(),
-			new X500Name(subjectName),
+			new X500Name(RFC4519Style.INSTANCE, subjectName),
 			issuerPrivateKey,
-			new X500Name(issuerName),
+			new X500Name(RFC4519Style.INSTANCE, issuerName),
 			issuerSignatureAlgorithm,
 			issuerSignatureProvider,
 			subjectExtensions
