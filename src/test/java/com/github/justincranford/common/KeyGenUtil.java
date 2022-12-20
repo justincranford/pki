@@ -2,6 +2,7 @@ package com.github.justincranford.common;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
@@ -14,25 +15,31 @@ import javax.crypto.spec.SecretKeySpec;
 public class KeyGenUtil {
 	public static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
-    public static KeyPair generateKeyPair(final String algorithm, final Provider provider) throws Exception {
-        final KeyPairGenerator subjectKeyPairGenerator;
-        if (provider == null) {
-            subjectKeyPairGenerator = KeyPairGenerator.getInstance(algorithm);
-            System.out.println("Found provider=" + subjectKeyPairGenerator.getProvider() + " for algorithm=" + subjectKeyPairGenerator.getAlgorithm());
-        } else {
-            subjectKeyPairGenerator = KeyPairGenerator.getInstance(algorithm, provider);
-        }
-        if (algorithm.equals("RSA")) {
-            subjectKeyPairGenerator.initialize(2048); // NIST RSA-2048
-        } else if (algorithm.equals("EC")) {
-            subjectKeyPairGenerator.initialize(new ECGenParameterSpec("secp521r1")); // NIST EC P-521
-        } else if (algorithm.equals("DiffieHellman")) {
-            subjectKeyPairGenerator.initialize(2048);// new DHGenParameterSpec(2048, 256)); // NIST DH-2048
-        } else {
-            throw new Exception("Unsupported algorithm: " + algorithm);
-        }
-        return subjectKeyPairGenerator.generateKeyPair();
+	// new DHGenParameterSpec(2048, 256)
+    public static KeyPair generateDhKeyPair(final int lengthBits, final Provider provider) throws Exception {
+        final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("DiffieHellman", provider);
+        keyPairGenerator.initialize(lengthBits);
+        return keyPairGenerator.generateKeyPair();
     }
+
+    public static KeyPair generateRsaKeyPair(final int lengthBits, final Provider provider) throws Exception {
+        final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("RSA", provider);
+        keyPairGenerator.initialize(lengthBits);
+        return keyPairGenerator.generateKeyPair();
+    }
+
+    // NIST EC P-256 => "secp256r1"
+    // NIST EC P-384 => "secp384r1"
+    // NIST EC P-521 => "secp521r1"
+    public static KeyPair generateEcKeyPair(final String curve, final Provider provider) throws Exception {
+        final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("EC", provider);
+        keyPairGenerator.initialize(new ECGenParameterSpec(curve));
+        return keyPairGenerator.generateKeyPair();
+    }
+
+	public static KeyPairGenerator getKeyPairGenerator(final String algorithm, final Provider provider) throws NoSuchAlgorithmException {
+        return (provider == null) ? KeyPairGenerator.getInstance(algorithm) : KeyPairGenerator.getInstance("EC", provider);
+	}
 
     public static byte[] getRandomBytes(final int bytesLength) throws Exception {
         final byte[] randomBytes = new byte[bytesLength];

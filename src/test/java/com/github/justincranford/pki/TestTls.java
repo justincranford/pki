@@ -244,7 +244,7 @@ class TestTls {
 		final Provider subjectSignatureProvider;
 		if (subjectSunpkcs11Conf == null) {
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = subjectKeyPairAlgorithm.equals("RSA") ? Security.getProvider("SunRsaSign") : Security.getProvider("SunEC");
-			subjectKeyPair = KeyGenUtil.generateKeyPair(subjectKeyPairAlgorithm, subjectKeyPairGeneratorProvider);
+			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, subjectKeyPairGeneratorProvider) : KeyGenUtil.generateEcKeyPair("secp521r1", subjectKeyPairGeneratorProvider);
 			subjectKeyStoreProvider = Security.getProvider("SunJSSE");
 			subjectKeyStore = KeyStore.getInstance("PKCS12", subjectKeyStoreProvider);
 			subjectKeyStore.load(null, null);
@@ -254,7 +254,7 @@ class TestTls {
 			authProvider.login(null, loginCallbackHandler);
 			Security.addProvider(authProvider); // register AuthProvider so JCA/JCE API calls can use it for crypto operations like KeyPairGenerator
 			subjectSignatureProvider = subjectKeyPairGeneratorProvider = authProvider;
-			subjectKeyPair = KeyGenUtil.generateKeyPair(subjectKeyPairAlgorithm, authProvider);
+			subjectKeyPair = subjectKeyPairAlgorithm.equals("RSA") ? KeyGenUtil.generateRsaKeyPair(2048, authProvider) : KeyGenUtil.generateEcKeyPair("secp521r1", authProvider);
 			subjectKeyStoreProvider = authProvider;
 			subjectKeyStore = KeyStore.Builder.newInstance("PKCS11", authProvider, new KeyStore.CallbackHandlerProtection(loginCallbackHandler)).getKeyStore(); // Keyproxy for network auto-reconnects
 			TestTls.printKeyStoreEntryAliases(subjectKeyStore, authProvider);
@@ -489,6 +489,7 @@ class TestTls {
 		LOGGER.info(sb.toString());
 	}
 
+	@SuppressWarnings("unused")
 	private static byte[] getKeyStoreBytes(final char[] subjectKeyStorePassword, final KeyStore subjectKeyStore) throws Exception {
 		final byte[] keyStoreBytes;
 		try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
