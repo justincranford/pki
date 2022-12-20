@@ -15,16 +15,15 @@ import javax.crypto.spec.SecretKeySpec;
 public class KeyGenUtil {
 	public static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
-	// new DHGenParameterSpec(2048, 256)
     public static KeyPair generateDhKeyPair(final int lengthBits, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("DiffieHellman", provider);
-        keyPairGenerator.initialize(lengthBits);
+        keyPairGenerator.initialize(lengthBits, SECURE_RANDOM);	// new DHGenParameterSpec(2048, 224)
         return keyPairGenerator.generateKeyPair();
     }
 
     public static KeyPair generateRsaKeyPair(final int lengthBits, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("RSA", provider);
-        keyPairGenerator.initialize(lengthBits);
+        keyPairGenerator.initialize(lengthBits, SECURE_RANDOM);
         return keyPairGenerator.generateKeyPair();
     }
 
@@ -33,7 +32,7 @@ public class KeyGenUtil {
     // NIST EC P-521 => "secp521r1"
     public static KeyPair generateEcKeyPair(final String curve, final Provider provider) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyGenUtil.getKeyPairGenerator("EC", provider);
-        keyPairGenerator.initialize(new ECGenParameterSpec(curve));
+        keyPairGenerator.initialize(new ECGenParameterSpec(curve), SECURE_RANDOM);
         return keyPairGenerator.generateKeyPair();
     }
 
