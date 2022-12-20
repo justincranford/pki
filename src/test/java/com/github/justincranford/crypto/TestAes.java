@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.justincranford.common.KeyGenUtil;
+import com.github.justincranford.common.SecureRandomUtil;
 import com.github.justincranford.common.StringUtil;
 
 @DisplayName("Test AES")
@@ -87,11 +88,11 @@ class TestAes {
 	) throws Exception {
 		final Cipher cipher = Cipher.getInstance(cipherAlgorithm, cipherProvider);
 		if (optionalAlgorithmParameter instanceof AlgorithmParameterSpec algorithmParameterSpec) {
-			cipher.init(cipherMode, secretKey, algorithmParameterSpec, KeyGenUtil.SECURE_RANDOM);
+			cipher.init(cipherMode, secretKey, algorithmParameterSpec, SecureRandomUtil.DEFAULT);
 		} else if (optionalAlgorithmParameter instanceof AlgorithmParameters algorithmParameters) {
-			cipher.init(cipherMode, secretKey, algorithmParameters, KeyGenUtil.SECURE_RANDOM);
+			cipher.init(cipherMode, secretKey, algorithmParameters, SecureRandomUtil.DEFAULT);
 		} else if (optionalAlgorithmParameter == null) {
-			cipher.init(cipherMode, secretKey, KeyGenUtil.SECURE_RANDOM);
+			cipher.init(cipherMode, secretKey, SecureRandomUtil.DEFAULT);
 		} else {
 			throw new InvalidParameterException("Unsupported parameter class " + optionalAlgorithmParameter.getClass().getCanonicalName());
 		}
