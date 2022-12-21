@@ -49,26 +49,26 @@ class TestPkiDomains {
 	}
 
 	@Test void testCreate() throws Exception {
-		final PkiDomain pkiDomain0 = extracted(0, 1); // numCa=0, numEndEntities=1
-		final PkiDomain pkiDomain1 = extracted(1, 2); // numCa=1, numEndEntities=2
-		final PkiDomain pkiDomain2 = extracted(2, 2); // numCa=2, numEndEntities=2
-		final PkiDomain pkiDomain3 = extracted(3, 2); // numCa=3, numEndEntities=2
+		final PkiDomain pkiDomain0 = extracted(0, 1); // numCa=0, numEndEntities=1 (i.e. self-signed)
+		final PkiDomain pkiDomain1 = extracted(1, 2); // numCa=1, numEndEntities=2 (i.e. CA-signed by root CA)
+		final PkiDomain pkiDomain2 = extracted(2, 2); // numCa=2, numEndEntities=2 (i.e. CA-signed by sub CA)
+		final PkiDomain pkiDomain3 = extracted(3, 2); // numCa=3, numEndEntities=2 (i.e. CA-signed by issuing CA)
 
-		final TrustManagerFactory tmf1 = TrustManagerFactory.getInstance("PKIX", "SunJSSE");
 		final Certificate caCertificate = pkiDomain1.caChain.get(pkiDomain1.caChain.size()-1).entry().getCertificateChain()[0];
 		final KeyStore trustStore = KeyStore.getInstance("JCEKS");
 		trustStore.load(null);
-		trustStore.setCertificateEntry("cert", caCertificate);
+		trustStore.setCertificateEntry("pkiDomain1_rootCa", caCertificate);
+
+		final TrustManagerFactory tmf1 = TrustManagerFactory.getInstance("PKIX", "SunJSSE");
 		tmf1.init(trustStore);
-		TrustManager[] trustManagers1 = tmf1.getTrustManagers();
-		final X509ExtendedTrustManager trustManager1 = (X509ExtendedTrustManager) trustManagers1[0];
+		final X509ExtendedTrustManager trustManager1 = (X509ExtendedTrustManager) tmf1.getTrustManagers()[0];
 
 		// Certs in pkiDomain1 are trusted by pkiDomain1
 		final X509Certificate[] endEntityCertificateChain1 = (X509Certificate[]) pkiDomain1.endEntities.get(0).entry().getCertificateChain();
 		trustManager1.checkClientTrusted(endEntityCertificateChain1, "ECDHE_ECDSA"); // From EndEntityChecker.KU_SERVER_SIGNATURE
 		trustManager1.checkServerTrusted(endEntityCertificateChain1, "ECDHE_ECDSA");
 
-		// Self-signed certs in pkiDomain0 are not trusted by pkiDomain1
+		// Certs in pkiDomain0 are not trusted by pkiDomain1
 		final Exception exception0 = assertThrows(Exception.class, () -> {
 			final X509Certificate[] endEntityCertificateChain0 = (X509Certificate[]) pkiDomain0.endEntities.get(0).entry().getCertificateChain();
 			trustManager1.checkClientTrusted(endEntityCertificateChain0, "ECDHE_ECDSA");
