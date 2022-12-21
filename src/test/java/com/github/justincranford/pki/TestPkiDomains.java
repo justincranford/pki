@@ -49,10 +49,10 @@ class TestPkiDomains {
 	}
 
 	@Test void testCreate() throws Exception {
-		final PkiDomain pkiDomain0 = extracted(0, 1); // numCa=0, numEndEntities=1 (i.e. self-signed)
-		final PkiDomain pkiDomain1 = extracted(1, 2); // numCa=1, numEndEntities=2 (i.e. CA-signed by root CA)
-		final PkiDomain pkiDomain2 = extracted(2, 2); // numCa=2, numEndEntities=2 (i.e. CA-signed by sub CA)
-		final PkiDomain pkiDomain3 = extracted(3, 2); // numCa=3, numEndEntities=2 (i.e. CA-signed by issuing CA)
+		final PkiDomain pkiDomain0 = createPkiDomain(0, 1); // numCa=0, numEndEntities=1 (i.e. self-signed)
+		final PkiDomain pkiDomain1 = createPkiDomain(1, 2); // numCa=1, numEndEntities=2 (i.e. CA-signed by root CA)
+		final PkiDomain pkiDomain2 = createPkiDomain(2, 2); // numCa=2, numEndEntities=2 (i.e. CA-signed by sub CA)
+		final PkiDomain pkiDomain3 = createPkiDomain(3, 2); // numCa=3, numEndEntities=2 (i.e. CA-signed by issuing CA)
 
 		final Certificate caCertificate = pkiDomain1.caChain.get(pkiDomain1.caChain.size()-1).entry().getCertificateChain()[0];
 		final KeyStore trustStore = KeyStore.getInstance("JCEKS");
@@ -90,7 +90,7 @@ class TestPkiDomains {
 	    assertThat(exception3.getMessage(), is(equalTo("PKIX path validation failed: java.security.cert.CertPathValidatorException: signature check failed")));
 	}
 
-	private PkiDomain extracted(final int numCa, final int numEndEntities) throws IOException, Exception {
+	private PkiDomain createPkiDomain(final int numCa, final int numEndEntities) throws IOException, Exception {
 		final List<KeyStoreManager> caChain = new ArrayList<>(numCa);
 		KeyStoreManager ksmIssuer = null;
 		for (int i = 0; i < numCa; i++) {
