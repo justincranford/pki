@@ -13,19 +13,13 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
-import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509ExtendedTrustManager;
 
-import org.bouncycastle.asn1.x509.BasicConstraints;
-import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
-import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.GeneralNamesBuilder;
-import org.bouncycastle.asn1.x509.KeyPurposeId;
-import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -99,7 +93,7 @@ class TestPkiDomains {
 		KeyStoreManager ksmIssuer = null;
 		for (int i = 0; i < numCa; i++) {
 			// Example: numCa=3 => Root CA pathLenConstraint=2, Intermediate CA pathLenConstraint=1, Issuing CA pathLenConstraint=0
-			final Extensions caExtensions = ExtensionUtil.createCaExtensions(numCa - 1 - i);
+			final Extensions caExtensions = ExtensionUtil.caExtensions(numCa - 1 - i);
 			final char[] password = ("CaPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "DC=CA" + i, "EC", password, password, caExtensions, null);
 			caChain.add(ksmSubject);
@@ -109,7 +103,8 @@ class TestPkiDomains {
 
 		final List<KeyStoreManager> endEntities = new ArrayList<>(numEndEntities);
 		for (int i = 0; i < numEndEntities; i++) {
-			final Extensions endEntityExtensions = ExtensionUtil.createClientServerEndEntityExtensionsWithEmail("EndEntity"+i+"@example.com");
+			final Map<Integer, String> map = Map.of(GeneralName.rfc822Name, "EndEntity"+i+"@example.com");
+			final Extensions endEntityExtensions = ExtensionUtil.clientServerExtensions(map);
 			final char[] password = ("EndEntityPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "CN=EndEntity"+i+"+serialNumber=" + i, "EC", password, password, endEntityExtensions, null);
 			endEntities.add(ksmSubject);
