@@ -36,6 +36,7 @@ import javax.security.auth.login.LoginException;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNamesBuilder;
 import org.bouncycastle.asn1.x509.KeyPurposeId;
@@ -51,6 +52,7 @@ import org.slf4j.LoggerFactory;
 
 import com.github.justincranford.common.CmsUtil;
 import com.github.justincranford.common.SecureRandomUtil;
+import com.github.justincranford.pki.cert.KeyStoreManager;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpsConfigurator;
@@ -72,9 +74,9 @@ class TestTls {
 	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
 	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
-	private static final Extension[] EXTENSIONS_ROOT_CA;
-	private static final Extension[] EXTENSIONS_CLIENT;
-	private static final Extension[] EXTENSIONS_SERVER;
+	private static final Extensions EXTENSIONS_ROOT_CA;
+	private static final Extensions EXTENSIONS_CLIENT;
+	private static final Extensions EXTENSIONS_SERVER;
 	static {
 		final int    caPathLenConstraint    = 0; // No sub-CAs allowed under root CA, only end-entities allowed under root CA
 		final String clientSanEmail         = "client1@example.com";
@@ -83,20 +85,20 @@ class TestTls {
 		final String serverSanAddressIp4    = "127.0.0.1";
 		final String serverSanAddressIp6    = "::1";
 		try {
-			EXTENSIONS_ROOT_CA = new Extension[] {
+			EXTENSIONS_ROOT_CA = new Extensions(new Extension[] {
 				new Extension(Extension.basicConstraints, true, new BasicConstraints(caPathLenConstraint).toASN1Primitive().getEncoded()),
 				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
-			};
-			EXTENSIONS_CLIENT = new Extension[] {
+			});
+			EXTENSIONS_CLIENT = new Extensions(new Extension[] {
 				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
 				new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
 				new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, clientSanEmail)).addName(new GeneralName(GeneralName.directoryName, clientSanDirectoryName)).build().toASN1Primitive().getEncoded())
-			};
-			EXTENSIONS_SERVER = new Extension[] {
+			});
+			EXTENSIONS_SERVER = new Extensions(new Extension[] {
 				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
 				new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
 				new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.dNSName, serverSanHostname)).addName(new GeneralName(GeneralName.iPAddress, serverSanAddressIp4)).addName(new GeneralName(GeneralName.iPAddress, serverSanAddressIp6)).build().toASN1Primitive().getEncoded())
-			};
+			});
 		} catch(Exception e) {
 			throw new RuntimeException(e);
 		}

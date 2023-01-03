@@ -1,4 +1,4 @@
-package com.github.justincranford.pki;
+package com.github.justincranford.pki.cert;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -29,6 +29,7 @@ import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.RFC4519Style;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,7 +67,7 @@ public record KeyStoreManager(
 		final String subjectKeyPairAlgorithm,			// "EC";
 		final char[] subjectKeyStorePassword,			// "Client".toCharArray();
 		final char[] subjectKeyStoreEntryPassword,		// "Client".toCharArray();
-		final Extension[] subjectExtensions,			// BasicConstraints, KeyUsage, ExtendedKeyUsage, GeneralNames, etc
+		final Extensions subjectExtensions,				// BasicConstraints, KeyUsage, ExtendedKeyUsage, GeneralNames, etc
 		final String subjectSunpkcs11Conf				// SUNPKCS11_CLIENT_END_ENTITY_CONF resolved file path
 	) throws Exception {
 		final Provider subjectKeyPairGeneratorProvider;	// SunPKCS11, SunRsaSign/SunEC
