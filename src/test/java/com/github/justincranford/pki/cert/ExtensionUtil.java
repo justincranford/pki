@@ -85,4 +85,19 @@ public class ExtensionUtil {
 		}
 		return new Extensions(oids.stream().map(o -> inputExtensions.getExtension(o)).filter(e -> e != null).toList().toArray(ExtensionUtil.EXTENSION_LIST_EMPTY));
 	}
+
+	public static Extensions createCaExtensions(final int pathLenConstraint) throws IOException {
+		return new Extensions(new Extension[] {
+			new Extension(Extension.basicConstraints, true, new BasicConstraints(pathLenConstraint).toASN1Primitive().getEncoded()),
+			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
+		});
+	}
+
+	public static Extensions createClientServerEndEntityExtensionsWithEmail(final String email) throws IOException {
+		return new Extensions(new Extension[] {
+			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
+			new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth, KeyPurposeId.id_kp_serverAuth}).toASN1Primitive().getEncoded()),
+			new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, email)).build().toASN1Primitive().getEncoded())
+		});
+	}
 }

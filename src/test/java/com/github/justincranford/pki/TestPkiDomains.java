@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.justincranford.pki.cert.ExtensionUtil;
 import com.github.justincranford.pki.cert.KeyStoreManager;
 
 @DisplayName("Test PKI Domains")
@@ -98,7 +99,7 @@ class TestPkiDomains {
 		KeyStoreManager ksmIssuer = null;
 		for (int i = 0; i < numCa; i++) {
 			// Example: numCa=3 => Root CA pathLenConstraint=2, Intermediate CA pathLenConstraint=1, Issuing CA pathLenConstraint=0
-			final Extensions caExtensions = createCaExtensions(numCa - 1 - i);
+			final Extensions caExtensions = ExtensionUtil.createCaExtensions(numCa - 1 - i);
 			final char[] password = ("CaPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "DC=CA" + i, "EC", password, password, caExtensions, null);
 			caChain.add(ksmSubject);
@@ -108,26 +109,11 @@ class TestPkiDomains {
 
 		final List<KeyStoreManager> endEntities = new ArrayList<>(numEndEntities);
 		for (int i = 0; i < numEndEntities; i++) {
-			final Extensions endEntityExtensions = createClientEndEntityExtensionsWithEmail("EndEntity"+i+"@example.com");
+			final Extensions endEntityExtensions = ExtensionUtil.createClientServerEndEntityExtensionsWithEmail("EndEntity"+i+"@example.com");
 			final char[] password = ("EndEntityPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "CN=EndEntity"+i+"+serialNumber=" + i, "EC", password, password, endEntityExtensions, null);
 			endEntities.add(ksmSubject);
 		}
 		return new PkiDomain(caChain, endEntities);
-	}
-
-	private Extensions createCaExtensions(final int pathLenConstraint) throws IOException {
-		return new Extensions(new Extension[] {
-			new Extension(Extension.basicConstraints, true, new BasicConstraints(pathLenConstraint).toASN1Primitive().getEncoded()),
-			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
-		});
-	}
-
-	private Extensions createClientEndEntityExtensionsWithEmail(final String email) throws IOException {
-		return new Extensions(new Extension[] {
-			new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-			new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth, KeyPurposeId.id_kp_serverAuth}).toASN1Primitive().getEncoded()),
-			new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, email)).build().toASN1Primitive().getEncoded())
-		});
 	}
 }
