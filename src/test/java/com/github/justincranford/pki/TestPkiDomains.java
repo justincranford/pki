@@ -103,8 +103,7 @@ class TestPkiDomains {
 
 		final List<KeyStoreManager> endEntities = new ArrayList<>(numEndEntities);
 		for (int i = 0; i < numEndEntities; i++) {
-			final Map<Integer, String> map = Map.of(GeneralName.rfc822Name, "EndEntity"+i+"@example.com");
-			final Extensions endEntityExtensions = ExtensionUtil.clientServerExtensions(map);
+			final Extensions endEntityExtensions = ExtensionUtil.clientServerExtensions(Map.of(GeneralName.rfc822Name, "EndEntity"+i+"@example.com"));
 			final char[] password = ("EndEntityPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "CN=EndEntity"+i+"+serialNumber=" + i, "EC", password, password, endEntityExtensions, null);
 			endEntities.add(ksmSubject);
