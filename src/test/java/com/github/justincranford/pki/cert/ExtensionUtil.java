@@ -116,6 +116,12 @@ public class ExtensionUtil {
 	public static Extension[] clientServerExtensionList(final Map<Integer,String> map) {
 		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT_SERVER, sanExtension(map));
 	}
+	public static Extension[] clientExtensionList(final Map<Integer,String> map) {
+		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT, sanExtension(map));
+	}
+	public static Extension[] serverExtensionList(final Map<Integer,String> map) {
+		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_SERVER, sanExtension(map));
+	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	public static Extensions caExtensions(final int pathLenConstraint) {
 		return new Extensions(caExtensionList(pathLenConstraint));
@@ -123,14 +129,24 @@ public class ExtensionUtil {
 	public static Extensions clientServerExtensions(final Map<Integer,String> map) {
 		return new Extensions(clientServerExtensionList(map));
 	}
+	public static Extensions clientExtensions(final Map<Integer,String> map) {
+		return new Extensions(clientExtensionList(map));
+	}
+	public static Extensions serverExtensions(final Map<Integer,String> map) {
+		return new Extensions(serverExtensionList(map));
+	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	private static byte[] encode(final ASN1Object asn1Object) throws IOException {
+		return asn1Object.toASN1Primitive().getEncoded();
+	}
 	private static byte[] encodeNoException(final ASN1Object asn1Object) {
 		try {
-			return asn1Object.toASN1Primitive().getEncoded();
+			return encode(asn1Object);
 		} catch(IOException e) {
 			return null;
 		}
 	}
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	public static Function<Extensions, Extensions> filterExtensionsLambda(final List<ASN1ObjectIdentifier> oids) {
 		return (inputExtensions) -> { 
 			if (inputExtensions == null) {

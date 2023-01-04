@@ -24,6 +24,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Map;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -33,14 +34,8 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.security.auth.login.LoginException;
 
-import org.bouncycastle.asn1.x509.BasicConstraints;
-import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
-import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.GeneralNamesBuilder;
-import org.bouncycastle.asn1.x509.KeyPurposeId;
-import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -52,6 +47,7 @@ import org.slf4j.LoggerFactory;
 
 import com.github.justincranford.common.CmsUtil;
 import com.github.justincranford.common.SecureRandomUtil;
+import com.github.justincranford.pki.cert.ExtensionUtil;
 import com.github.justincranford.pki.cert.KeyStoreManager;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -74,35 +70,8 @@ class TestTls {
 	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
 	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
-	private static final Extensions EXTENSIONS_ROOT_CA;
-	private static final Extensions EXTENSIONS_CLIENT;
-	private static final Extensions EXTENSIONS_SERVER;
-	static {
-		final int    caPathLenConstraint    = 0; // No sub-CAs allowed under root CA, only end-entities allowed under root CA
-		final String clientSanEmail         = "client1@example.com";
-		final String clientSanDirectoryName = "CN=client1,OU=org unit,O=orgDC=example,DC=com";
-		final String serverSanHostname      = "localhost";
-		final String serverSanAddressIp4    = "127.0.0.1";
-		final String serverSanAddressIp6    = "::1";
-		try {
-			EXTENSIONS_ROOT_CA = new Extensions(new Extension[] {
-				new Extension(Extension.basicConstraints, true, new BasicConstraints(caPathLenConstraint).toASN1Primitive().getEncoded()),
-				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign).toASN1Primitive().getEncoded())
-			});
-			EXTENSIONS_CLIENT = new Extensions(new Extension[] {
-				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-				new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth).toASN1Primitive().getEncoded()),
-				new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.rfc822Name, clientSanEmail)).addName(new GeneralName(GeneralName.directoryName, clientSanDirectoryName)).build().toASN1Primitive().getEncoded())
-			});
-			EXTENSIONS_SERVER = new Extensions(new Extension[] {
-				new Extension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature).toASN1Primitive().getEncoded()),
-				new Extension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth).toASN1Primitive().getEncoded()),
-				new Extension(Extension.subjectAlternativeName, false, new GeneralNamesBuilder().addName(new GeneralName(GeneralName.dNSName, serverSanHostname)).addName(new GeneralName(GeneralName.iPAddress, serverSanAddressIp4)).addName(new GeneralName(GeneralName.iPAddress, serverSanAddressIp6)).build().toASN1Primitive().getEncoded())
-			});
-		} catch(Exception e) {
-			throw new RuntimeException(e);
-		}
-	}
+	private static final Extensions EXTENSIONS_CLIENT = ExtensionUtil.clientExtensions(Map.of(GeneralName.rfc822Name, "client1@example.com"));
+	private static final Extensions EXTENSIONS_SERVER = ExtensionUtil.serverExtensions(Map.of(GeneralName.dNSName, "localhost", GeneralName.iPAddress, "127.0.0.1"));
 
 	@BeforeAll static void beforeAll() {
 		Security.addProvider(new BouncyCastleProvider());	// Register BC provider, required if making direct or indirect JCA/JCE calls to BC
@@ -135,16 +104,16 @@ class TestTls {
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedAllP12() throws Exception {
-		this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
-		this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+		this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", "RSA", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), ExtensionUtil.EXTENSIONS_CA_0, null);
+		this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", "EC",  "ServerCA".toCharArray(),   "ServerCA".toCharArray(), ExtensionUtil.EXTENSIONS_CA_0, null);
 		this.client   = KeyStoreManager.create(this.clientCa, "CN=Client",    "EC",  "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
 		this.server   = KeyStoreManager.create(this.serverCa, "CN=Server",    "RSA", "Server".toCharArray(),     "Server".toCharArray(),   EXTENSIONS_SERVER,  null);
 		this.mutualTlsHelper();
 	}
 	@Test void testMutualTlsCaSignedAllP11() throws Exception {
 		this.checkForSoftHsm2ConfEnvVariable();
-		this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
-		this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+		this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", "RSA", "hsmslotpwd".toCharArray(), null,                     ExtensionUtil.EXTENSIONS_CA_0, SUNPKCS11_CLIENT_CA_CONF);
+		this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", "EC",  "hsmslotpwd".toCharArray(), null,                     ExtensionUtil.EXTENSIONS_CA_0, SUNPKCS11_SERVER_CA_CONF);
 		this.client   = KeyStoreManager.create(this.clientCa, "CN=Client",    "EC",  "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_CLIENT,  SUNPKCS11_CLIENT_END_ENTITY_CONF);
 		this.server   = KeyStoreManager.create(this.serverCa, "CN=Server",    "RSA", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_SERVER,  SUNPKCS11_SERVER_END_ENTITY_CONF);
 		this.mutualTlsHelper();
@@ -153,18 +122,18 @@ class TestTls {
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
 			this.clientCa = null;
 		} else if (SecureRandomUtil.DEFAULT.nextBoolean()) {
-			this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ClientCA".toCharArray(),   "ClientCA".toCharArray(), ExtensionUtil.EXTENSIONS_CA_0, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_CLIENT_CA_CONF);
+			this.clientCa = KeyStoreManager.create(null,          "DC=Client CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     ExtensionUtil.EXTENSIONS_CA_0, SUNPKCS11_CLIENT_CA_CONF);
 		}
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
 			this.serverCa = null;
 		} else if (SecureRandomUtil.DEFAULT.nextBoolean()) {
-			this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), EXTENSIONS_ROOT_CA, null);
+			this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "ServerCA".toCharArray(),   "ServerCA".toCharArray(), ExtensionUtil.EXTENSIONS_CA_0, null);
 		} else {
 			this.checkForSoftHsm2ConfEnvVariable();
-			this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     EXTENSIONS_ROOT_CA, SUNPKCS11_SERVER_CA_CONF);
+			this.serverCa = KeyStoreManager.create(null,          "DC=Server CA", SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "hsmslotpwd".toCharArray(), null,                     ExtensionUtil.EXTENSIONS_CA_0, SUNPKCS11_SERVER_CA_CONF);
 		}
 		if (SecureRandomUtil.DEFAULT.nextBoolean()) {
 			this.client   = KeyStoreManager.create(this.clientCa, "CN=Client",    SecureRandomUtil.DEFAULT.nextBoolean() ? "RSA" : "EC", "Client".toCharArray(),     "Client".toCharArray(),   EXTENSIONS_CLIENT,  null);
