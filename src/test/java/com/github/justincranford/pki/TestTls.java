@@ -70,8 +70,8 @@ class TestTls {
 	private static final String SUNPKCS11_CLIENT_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-client-end-entity.conf");
 	private static final String SUNPKCS11_SERVER_END_ENTITY_CONF = TestTls.resourceToFilePath("/SunPKCS11-server-end-entity.conf");
 
-	private static final Extensions EXTENSIONS_CLIENT = ExtensionUtil.clientExtensions(Map.of(GeneralName.rfc822Name, "client1@example.com"));
-	private static final Extensions EXTENSIONS_SERVER = ExtensionUtil.serverExtensions(Map.of(GeneralName.dNSName, "localhost", GeneralName.iPAddress, "127.0.0.1"));
+	private static final Extensions EXTENSIONS_CLIENT = ExtensionUtil.extensions(ExtensionUtil.EXTENSION_KU_DIGITALSIGNATURE, ExtensionUtil.EXTENSION_EKU_CLIENT, ExtensionUtil.sanExtension(Map.of(GeneralName.rfc822Name, "client1@example.com")));
+	private static final Extensions EXTENSIONS_SERVER = ExtensionUtil.extensions(ExtensionUtil.EXTENSION_KU_DIGITALSIGNATURE, ExtensionUtil.EXTENSION_EKU_SERVER, ExtensionUtil.sanExtension(Map.of(GeneralName.dNSName, "localhost", GeneralName.iPAddress, "127.0.0.1")));
 
 	@BeforeAll static void beforeAll() {
 		Security.addProvider(new BouncyCastleProvider());	// Register BC provider, required if making direct or indirect JCA/JCE calls to BC
@@ -277,6 +277,7 @@ class TestTls {
 		}
 	}
 
+	@SuppressWarnings("unused")
 	private static void printKeyStoreEntryAliases(final KeyStore keyStore, final AuthProvider authProvider) throws Exception {
 		final StringBuilder sb = new StringBuilder(authProvider.getName() + " existing entries:\n");
 		for (final String alias : Collections.list(keyStore.aliases())) {

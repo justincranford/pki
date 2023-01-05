@@ -93,7 +93,7 @@ class TestPkiDomains {
 		KeyStoreManager ksmIssuer = null;
 		for (int i = 0; i < numCa; i++) {
 			// Example: numCa=3 => Root CA pathLenConstraint=2, Intermediate CA pathLenConstraint=1, Issuing CA pathLenConstraint=0
-			final Extensions caExtensions = ExtensionUtil.caExtensions(numCa - 1 - i);
+			final Extensions caExtensions = ExtensionUtil.extensions(ExtensionUtil.bcExtension(numCa - 1 - i), ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN);
 			final char[] password = ("CaPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "DC=CA" + i, "EC", password, password, caExtensions, null);
 			caChain.add(ksmSubject);
@@ -103,7 +103,8 @@ class TestPkiDomains {
 
 		final List<KeyStoreManager> endEntities = new ArrayList<>(numEndEntities);
 		for (int i = 0; i < numEndEntities; i++) {
-			final Extensions endEntityExtensions = ExtensionUtil.clientServerExtensions(Map.of(GeneralName.rfc822Name, "EndEntity"+i+"@example.com"));
+			Map<Integer, String> map = Map.of(GeneralName.rfc822Name, "EndEntity"+i+"@example.com");
+			final Extensions endEntityExtensions = ExtensionUtil.extensions(ExtensionUtil.EXTENSION_KU_DIGITALSIGNATURE, ExtensionUtil.EXTENSION_EKU_CLIENT_SERVER, ExtensionUtil.sanExtension(map));
 			final char[] password = ("EndEntityPwd"+i).toCharArray();
 			final KeyStoreManager ksmSubject = KeyStoreManager.create(ksmIssuer, "CN=EndEntity"+i+"+serialNumber=" + i, "EC", password, password, endEntityExtensions, null);
 			endEntities.add(ksmSubject);
