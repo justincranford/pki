@@ -124,36 +124,8 @@ public class ExtensionUtil {
 		return new Extension(Extension.authorityKeyIdentifier, false, encodeNoException(aki(keyid, map, serialNumber)));
 	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	public static Extension[] extensionList(final Extension... extensionList) {
-		return extensionList;
-	}
-	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TODO Move these to CertTemplate
-	public static Extension[] caExtensionList(final int pathLenConstraint) {
-		return extensionList(bcExtension(pathLenConstraint), EXTENSION_KU_KEYCERTSIGN_CRLSIGN);
-	}
-	public static Extension[] clientServerExtensionList(final Map<Integer,String> map) {
-		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT_SERVER, sanExtension(map));
-	}
-	public static Extension[] clientExtensionList(final Map<Integer,String> map) {
-		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT, sanExtension(map));
-	}
-	public static Extension[] serverExtensionList(final Map<Integer,String> map) {
-		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_SERVER, sanExtension(map));
-	}
-	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TODO Move these to CertTemplate
-	public static Extensions caExtensions(final int pathLenConstraint) {
-		return new Extensions(caExtensionList(pathLenConstraint));
-	}
-	public static Extensions clientServerExtensions(final Map<Integer,String> map) {
-		return new Extensions(clientServerExtensionList(map));
-	}
-	public static Extensions clientExtensions(final Map<Integer,String> map) {
-		return new Extensions(clientExtensionList(map));
-	}
-	public static Extensions serverExtensions(final Map<Integer,String> map) {
-		return new Extensions(serverExtensionList(map));
+	public static Extensions extensions(final Extension... extensionList) {
+		return new Extensions(extensionList);
 	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	private static byte[] encode(final ASN1Object asn1Object) throws IOException {
