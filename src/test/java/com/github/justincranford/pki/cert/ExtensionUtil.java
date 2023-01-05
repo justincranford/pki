@@ -1,6 +1,7 @@
 package com.github.justincranford.pki.cert;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.function.Function;
 
 import org.bouncycastle.asn1.ASN1Object;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.x509.AuthorityKeyIdentifier;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
 import org.bouncycastle.asn1.x509.Extension;
@@ -18,6 +20,7 @@ import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.GeneralNamesBuilder;
 import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
+import org.bouncycastle.asn1.x509.SubjectKeyIdentifier;
 
 public class ExtensionUtil {
 	record GeneralNameArgs(List<String> dnsNames, List<String> ipAddresses, List<String> emailAddresses, List<String> directoryNames, List<String> uniformResourceIdentifiers) {}
@@ -88,6 +91,15 @@ public class ExtensionUtil {
 	public static GeneralNames generalNames(final Map<Integer,String> map) {
 		return generalNames(generalNameList(map));
 	}
+	public static SubjectKeyIdentifier ski(final byte[] keyid) {
+		return new SubjectKeyIdentifier(keyid);
+	}
+	public static AuthorityKeyIdentifier aki(final byte[] keyid, final GeneralNames generalNames, final BigInteger serialNumber) {
+		return new AuthorityKeyIdentifier(keyid, generalNames, serialNumber);
+	}
+	public static AuthorityKeyIdentifier aki(final byte[] keyid, final Map<Integer,String> map, final BigInteger serialNumber) {
+		return new AuthorityKeyIdentifier(keyid, generalNames(map), serialNumber);
+	}
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	public static Extension bcExtension(final int pathLenConstraint) {
@@ -105,11 +117,18 @@ public class ExtensionUtil {
 	public static Extension ianExtension(final Map<Integer,String> map) {
 		return new Extension(Extension.issuerAlternativeName, false, encodeNoException(generalNames(map)));
 	}
+	public static Extension skiExtension(final byte[] keyid) {
+		return new Extension(Extension.subjectKeyIdentifier, false, encodeNoException(ski(keyid)));
+	}
+	public static Extension akiExtension(final byte[] keyid, final Map<Integer,String> map, final BigInteger serialNumber) {
+		return new Extension(Extension.authorityKeyIdentifier, false, encodeNoException(aki(keyid, map, serialNumber)));
+	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	public static Extension[] extensionList(final Extension... extensionList) {
 		return extensionList;
 	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TODO Move these to CertTemplate
 	public static Extension[] caExtensionList(final int pathLenConstraint) {
 		return extensionList(bcExtension(pathLenConstraint), EXTENSION_KU_KEYCERTSIGN_CRLSIGN);
 	}
@@ -123,6 +142,7 @@ public class ExtensionUtil {
 		return extensionList(EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_SERVER, sanExtension(map));
 	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TODO Move these to CertTemplate
 	public static Extensions caExtensions(final int pathLenConstraint) {
 		return new Extensions(caExtensionList(pathLenConstraint));
 	}
