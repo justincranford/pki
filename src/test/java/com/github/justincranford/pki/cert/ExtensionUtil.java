@@ -61,25 +61,7 @@ public class ExtensionUtil {
 	public static final Extension EXTENSION_SAN_LOCALHOST                     = new Extension(Extension.subjectAlternativeName, false, encodeNoException(SAN_LOCALHOST));
 
 	public static final Extension[] EXTENSION_LIST_EMPTY = new Extension[0];
-	public static final Extension[] EXTENSION_LIST_CA_UNLIMITED = new Extension[] { EXTENSION_BC_UNLIMITED, EXTENSION_KU_KEYCERTSIGN_CRLSIGN };
-	public static final Extension[] EXTENSION_LIST_CA_2 = new Extension[] { EXTENSION_BC_2, EXTENSION_KU_KEYCERTSIGN_CRLSIGN };
-	public static final Extension[] EXTENSION_LIST_CA_1 = new Extension[] { EXTENSION_BC_1, EXTENSION_KU_KEYCERTSIGN_CRLSIGN };
-	public static final Extension[] EXTENSION_LIST_CA_0 = new Extension[] { EXTENSION_BC_0, EXTENSION_KU_KEYCERTSIGN_CRLSIGN };
-	public static final Extension[] EXTENSION_LIST_HTTPS_CLIENT_SERVER = new Extension[] { EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT_SERVER };
-	public static final Extension[] EXTENSION_LIST_HTTPS_CLIENT = new Extension[] { EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT };
-	public static final Extension[] EXTENSION_LIST_HTTPS_SERVER = new Extension[] { EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_SERVER };
-	public static final Extension[] EXTENSION_LIST_HTTPS_CLIENT_SERVER_LOCALHOST = new Extension[] { EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT_SERVER, EXTENSION_SAN_LOCALHOST };
-	public static final Extension[] EXTENSION_LIST_HTTPS_CLIENT_LOCALHOST = new Extension[] { EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_CLIENT, EXTENSION_SAN_LOCALHOST };
-	public static final Extension[] EXTENSION_LIST_HTTPS_SERVER_LOCALHOST = new Extension[] { EXTENSION_KU_DIGITALSIGNATURE, EXTENSION_EKU_SERVER, EXTENSION_SAN_LOCALHOST };
-
 	public static final Extensions EXTENSIONS_EMPTY = new Extensions(EXTENSION_LIST_EMPTY);
-	public static final Extensions EXTENSIONS_CA_UNLIMITED = new Extensions(EXTENSION_LIST_CA_UNLIMITED);
-	public static final Extensions EXTENSIONS_CA_2 = new Extensions(EXTENSION_LIST_CA_2);
-	public static final Extensions EXTENSIONS_CA_1 = new Extensions(EXTENSION_LIST_CA_1);
-	public static final Extensions EXTENSIONS_CA_0 = new Extensions(EXTENSION_LIST_CA_0);
-	public static final Extensions EXTENSIONS_HTTPS_CLIENT_SERVER = new Extensions(EXTENSION_LIST_HTTPS_CLIENT_SERVER);
-	public static final Extensions EXTENSIONS_HTTPS_CLIENT = new Extensions(EXTENSION_LIST_HTTPS_CLIENT);
-	public static final Extensions EXTENSIONS_HTTPS_SERVER = new Extensions(EXTENSION_LIST_HTTPS_SERVER);
 
 	public static final Function<Extensions, Extensions> FILTER_EXTENSIONS_LAMBDA_CA = filterExtensionsLambda(List.of(Extension.issuerAlternativeName));
 	public static final Function<Extensions, Extensions> FILTER_EXTENSIONS_LAMBDA_END_ENTITY = filterExtensionsLambda(List.of(Extension.subjectAlternativeName));
@@ -157,7 +139,11 @@ public class ExtensionUtil {
 			if (inputExtensions == null) {
 				return EXTENSIONS_EMPTY;
 			}
-			return new Extensions(oids.stream().map(o -> inputExtensions.getExtension(o)).filter(e -> e != null).toList().toArray(EXTENSION_LIST_EMPTY));
+			final List<Extension> extensionsList = oids.stream().map(o -> inputExtensions.getExtension(o)).filter(e -> e != null).toList();
+			if (extensionsList.isEmpty()) {
+				return EXTENSIONS_EMPTY;
+			}
+			return new Extensions(extensionsList.toArray(EXTENSION_LIST_EMPTY));
 		};
 	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
