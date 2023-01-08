@@ -25,27 +25,40 @@ import org.bouncycastle.asn1.x509.SubjectKeyIdentifier;
 public class ExtensionUtil {
 	record GeneralNameArgs(List<String> dnsNames, List<String> ipAddresses, List<String> emailAddresses, List<String> directoryNames, List<String> uniformResourceIdentifiers) {}
 
-	public static final BasicConstraints BC_UNLIMITED               = new BasicConstraints(-1);
-	public static final BasicConstraints BC_2                       = new BasicConstraints(2);
-	public static final BasicConstraints BC_1                       = new BasicConstraints(1);
-	public static final BasicConstraints BC_0                       = new BasicConstraints(0);
-	public static final KeyUsage         KU_KEYCERTSIGN_CRLSIGN     = new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign);
-	public static final KeyUsage         KU_DIGITALSIGNATURE        = new KeyUsage(KeyUsage.digitalSignature);
-	public static final ExtendedKeyUsage EKU_CLIENTSERVER           = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth, KeyPurposeId.id_kp_serverAuth});
-	public static final ExtendedKeyUsage EKU_CLIENT                 = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth});
-	public static final ExtendedKeyUsage EKU_SERVER                 = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_serverAuth});
-	public static final GeneralNames     SAN_LOCALHOST              = generalNames(Map.of(GeneralName.dNSName, "localhost", GeneralName.iPAddress, "127.0.0.1"));
+	public static final BasicConstraints BC_UNLIMITED                      = new BasicConstraints(-1);
+	public static final BasicConstraints BC_2                              = new BasicConstraints(2);
+	public static final BasicConstraints BC_1                              = new BasicConstraints(1);
+	public static final BasicConstraints BC_0                              = new BasicConstraints(0);
+	public static final KeyUsage         KU_KEYCERTSIGN                    = new KeyUsage(KeyUsage.keyCertSign);
+	public static final KeyUsage         KU_CRLSIGN                        = new KeyUsage(KeyUsage.cRLSign);
+	public static final KeyUsage         KU_KEYCERTSIGN_CRLSIGN            = new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign);
 
-	public static final Extension EXTENSION_BC_UNLIMITED           = new Extension(Extension.basicConstraints, true,  encodeNoException(BC_UNLIMITED));
-	public static final Extension EXTENSION_BC_2                   = new Extension(Extension.basicConstraints, true,  encodeNoException(BC_2));
-	public static final Extension EXTENSION_BC_1                   = new Extension(Extension.basicConstraints, true,  encodeNoException(BC_1));
-	public static final Extension EXTENSION_BC_0                   = new Extension(Extension.basicConstraints, true,  encodeNoException(BC_0));
-	public static final Extension EXTENSION_KU_KEYCERTSIGN_CRLSIGN = new Extension(Extension.keyUsage,         true,  encodeNoException(KU_KEYCERTSIGN_CRLSIGN));
-	public static final Extension EXTENSION_KU_DIGITALSIGNATURE    = new Extension(Extension.keyUsage,         true,  encodeNoException(KU_DIGITALSIGNATURE));
-	public static final Extension EXTENSION_EKU_CLIENT_SERVER      = new Extension(Extension.extendedKeyUsage, false, encodeNoException(EKU_CLIENTSERVER));
-	public static final Extension EXTENSION_EKU_CLIENT             = new Extension(Extension.extendedKeyUsage, false, encodeNoException(EKU_CLIENT));
-	public static final Extension EXTENSION_EKU_SERVER             = new Extension(Extension.extendedKeyUsage, false, encodeNoException(EKU_SERVER));
-	public static final Extension EXTENSION_SAN_LOCALHOST          = new Extension(Extension.subjectAlternativeName, false, encodeNoException(SAN_LOCALHOST));
+	public static final KeyUsage         KU_DIGITALSIGNATURE               = new KeyUsage(KeyUsage.digitalSignature);
+	public static final KeyUsage         KU_KEYAGREEMENT                   = new KeyUsage(KeyUsage.keyAgreement);
+	public static final KeyUsage         KU_KEYENCRYPTION                  = new KeyUsage(KeyUsage.keyEncipherment);
+	public static final KeyUsage         KU_DIGITALSIGNATURE_KEYAGREEMENT  = new KeyUsage(KeyUsage.digitalSignature|KeyUsage.keyAgreement);
+	public static final KeyUsage         KU_DIGITALSIGNATURE_KEYENCRYPTION = new KeyUsage(KeyUsage.digitalSignature|KeyUsage.keyEncipherment);
+	public static final ExtendedKeyUsage EKU_SERVER                        = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_serverAuth});
+	public static final ExtendedKeyUsage EKU_CLIENT                        = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth});
+	public static final ExtendedKeyUsage EKU_CLIENTSERVER                  = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_clientAuth, KeyPurposeId.id_kp_serverAuth});
+	public static final GeneralNames     SAN_LOCALHOST                     = generalNames(Map.of(GeneralName.dNSName, "localhost", GeneralName.iPAddress, "127.0.0.1"));
+
+	public static final Extension EXTENSION_BC_UNLIMITED                      = new Extension(Extension.basicConstraints,       true,  encodeNoException(BC_UNLIMITED));
+	public static final Extension EXTENSION_BC_2                              = new Extension(Extension.basicConstraints,       true,  encodeNoException(BC_2));
+	public static final Extension EXTENSION_BC_1                              = new Extension(Extension.basicConstraints,       true,  encodeNoException(BC_1));
+	public static final Extension EXTENSION_BC_0                              = new Extension(Extension.basicConstraints,       true,  encodeNoException(BC_0));
+	public static final Extension EXTENSION_KU_KEYCERTSIGN                    = new Extension(Extension.keyUsage,               true,  encodeNoException(KU_KEYCERTSIGN));
+	public static final Extension EXTENSION_KU_CRLSIGN                        = new Extension(Extension.keyUsage,               true,  encodeNoException(KU_CRLSIGN));
+	public static final Extension EXTENSION_KU_KEYCERTSIGN_CRLSIGN            = new Extension(Extension.keyUsage,               true,  encodeNoException(KU_KEYCERTSIGN_CRLSIGN));
+	public static final Extension EXTENSION_KU_DIGITALSIGNATURE               = new Extension(Extension.keyUsage,               false, encodeNoException(KU_DIGITALSIGNATURE));
+	public static final Extension EXTENSION_KU_KEYAGREEMENT                   = new Extension(Extension.keyUsage,               false, encodeNoException(KU_KEYAGREEMENT));
+	public static final Extension EXTENSION_KU_KEYENCRYPTION                  = new Extension(Extension.keyUsage,               false, encodeNoException(KU_KEYENCRYPTION));
+	public static final Extension EXTENSION_KU_DIGITALSIGNATURE_KEYAGREEMENT  = new Extension(Extension.keyUsage,               false, encodeNoException(KU_DIGITALSIGNATURE_KEYAGREEMENT));
+	public static final Extension EXTENSION_KU_DIGITALSIGNATURE_KEYENCRYPTION = new Extension(Extension.keyUsage,               false, encodeNoException(KU_DIGITALSIGNATURE_KEYENCRYPTION));
+	public static final Extension EXTENSION_EKU_SERVER                        = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_SERVER));
+	public static final Extension EXTENSION_EKU_CLIENT                        = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_CLIENT));
+	public static final Extension EXTENSION_EKU_CLIENT_SERVER                 = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_CLIENTSERVER));
+	public static final Extension EXTENSION_SAN_LOCALHOST                     = new Extension(Extension.subjectAlternativeName, false, encodeNoException(SAN_LOCALHOST));
 
 	public static final Extension[] EXTENSION_LIST_EMPTY = new Extension[0];
 	public static final Extension[] EXTENSION_LIST_CA_UNLIMITED = new Extension[] { EXTENSION_BC_UNLIMITED, EXTENSION_KU_KEYCERTSIGN_CRLSIGN };
