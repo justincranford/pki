@@ -32,6 +32,10 @@ public class ExtensionUtil {
 	public static final KeyUsage         KU_KEYCERTSIGN                    = new KeyUsage(KeyUsage.keyCertSign);
 	public static final KeyUsage         KU_CRLSIGN                        = new KeyUsage(KeyUsage.cRLSign);
 	public static final KeyUsage         KU_KEYCERTSIGN_CRLSIGN            = new KeyUsage(KeyUsage.keyCertSign|KeyUsage.cRLSign);
+	public static final ExtendedKeyUsage EKU_ANY                           = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.anyExtendedKeyUsage});
+	public static final ExtendedKeyUsage EKU_OCSPSIGNING                   = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_OCSPSigning});
+	public static final ExtendedKeyUsage EKU_CODESIGNING                   = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_codeSigning});
+	public static final ExtendedKeyUsage EKU_TIMESTAMPING                  = new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_timeStamping});
 
 	public static final KeyUsage         KU_DIGITALSIGNATURE               = new KeyUsage(KeyUsage.digitalSignature);
 	public static final KeyUsage         KU_KEYAGREEMENT                   = new KeyUsage(KeyUsage.keyAgreement);
@@ -50,14 +54,22 @@ public class ExtensionUtil {
 	public static final Extension EXTENSION_KU_KEYCERTSIGN                    = new Extension(Extension.keyUsage,               true,  encodeNoException(KU_KEYCERTSIGN));
 	public static final Extension EXTENSION_KU_CRLSIGN                        = new Extension(Extension.keyUsage,               true,  encodeNoException(KU_CRLSIGN));
 	public static final Extension EXTENSION_KU_KEYCERTSIGN_CRLSIGN            = new Extension(Extension.keyUsage,               true,  encodeNoException(KU_KEYCERTSIGN_CRLSIGN));
+
 	public static final Extension EXTENSION_KU_DIGITALSIGNATURE               = new Extension(Extension.keyUsage,               false, encodeNoException(KU_DIGITALSIGNATURE));
 	public static final Extension EXTENSION_KU_KEYAGREEMENT                   = new Extension(Extension.keyUsage,               false, encodeNoException(KU_KEYAGREEMENT));
 	public static final Extension EXTENSION_KU_KEYENCRYPTION                  = new Extension(Extension.keyUsage,               false, encodeNoException(KU_KEYENCRYPTION));
 	public static final Extension EXTENSION_KU_DIGITALSIGNATURE_KEYAGREEMENT  = new Extension(Extension.keyUsage,               false, encodeNoException(KU_DIGITALSIGNATURE_KEYAGREEMENT));
 	public static final Extension EXTENSION_KU_DIGITALSIGNATURE_KEYENCRYPTION = new Extension(Extension.keyUsage,               false, encodeNoException(KU_DIGITALSIGNATURE_KEYENCRYPTION));
+
+	public static final Extension EXTENSION_EKU_ANY                           = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_ANY));
+	public static final Extension EXTENSION_EKU_OCSPSIGNING                   = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_OCSPSIGNING));
+	public static final Extension EXTENSION_EKU_CODESIGNING                   = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_CODESIGNING));
+	public static final Extension EXTENSION_EKU_TIMESTAMPING                  = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_TIMESTAMPING));
+
 	public static final Extension EXTENSION_EKU_SERVER                        = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_SERVER));
 	public static final Extension EXTENSION_EKU_CLIENT                        = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_CLIENT));
 	public static final Extension EXTENSION_EKU_CLIENT_SERVER                 = new Extension(Extension.extendedKeyUsage,       false, encodeNoException(EKU_CLIENTSERVER));
+	
 	public static final Extension EXTENSION_SAN_LOCALHOST                     = new Extension(Extension.subjectAlternativeName, false, encodeNoException(SAN_LOCALHOST));
 
 	public static final Extension[] EXTENSION_LIST_EMPTY = new Extension[0];

@@ -21,17 +21,17 @@ public record CertTemplate(String name, Extensions defaultExtensions, Function<E
 	}
 
 	public static final CertTemplate PROFILE_UNLIMITED_CA = new CertTemplate("Unlimited CA",
-		ExtensionUtil.extensions(ExtensionUtil.EXTENSION_BC_UNLIMITED, ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN),
+		ExtensionUtil.extensions(ExtensionUtil.EXTENSION_BC_UNLIMITED, ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN, ExtensionUtil.EXTENSION_EKU_OCSPSIGNING),
 		ExtensionUtil.FILTER_EXTENSIONS_LAMBDA_CA
 	);
 
 	public static final CertTemplate PROFILE_ROOT_CA_1 = new CertTemplate("Root CA",
-		ExtensionUtil.extensions(ExtensionUtil.EXTENSION_BC_1, ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN),
+		ExtensionUtil.extensions(ExtensionUtil.EXTENSION_BC_1, ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN, ExtensionUtil.EXTENSION_EKU_OCSPSIGNING),
 		ExtensionUtil.FILTER_EXTENSIONS_LAMBDA_CA
 	);
 
 	public static final CertTemplate PROFILE_SUBORDINATE_CA_0 = new CertTemplate("Subordinate CA",
-		ExtensionUtil.extensions(ExtensionUtil.EXTENSION_BC_0, ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN),
+		ExtensionUtil.extensions(ExtensionUtil.EXTENSION_BC_0, ExtensionUtil.EXTENSION_KU_KEYCERTSIGN_CRLSIGN, ExtensionUtil.EXTENSION_EKU_OCSPSIGNING),
 		ExtensionUtil.FILTER_EXTENSIONS_LAMBDA_CA
 	);
 
